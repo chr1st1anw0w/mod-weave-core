@@ -474,6 +474,8 @@ interface NodeWrapperProps {
 }
 
 const NodeWrapper: React.FC<NodeWrapperProps> = ({ mod, index, onDragStart, onDrop, onDragOver, handleUpdateModifier, handleRemoveModifier, handleToggleActive, handleToggleFavorite, handleParamReset, setRef, onIOClick, isSelected }) => {
+    const [isDragOver, setIsDragOver] = useState(false);
+
     const handleContainerMouseDown = useCallback((e: React.MouseEvent) => {
         const target = e.target as HTMLElement;
         const ioType = target.getAttribute('data-io-type');
@@ -489,32 +491,53 @@ const NodeWrapper: React.FC<NodeWrapperProps> = ({ mod, index, onDragStart, onDr
         // Otherwise, let the native drag handle it via draggable="true"
     }, [onIOClick]);
 
+    const handleDragOver = useCallback((e: React.DragEvent) => {
+        setIsDragOver(true);
+        onDragOver(e);
+    }, [onDragOver]);
+
+    const handleDragLeave = useCallback((e: React.DragEvent) => {
+        setIsDragOver(false);
+    }, []);
+
+    const handleDrop = useCallback((e: React.DragEvent) => {
+        setIsDragOver(false);
+        onDrop(e, index);
+    }, [onDrop, index]);
 
     const NodeComponent = NodeComponentMap[mod.type] || Nodes.GenericExtendedNode;
-    
-    const finalProps = { 
-      ref: setRef, 
+
+    const finalProps = {
+      ref: setRef,
       modId: mod.id,
       name: mod.name,
       type: mod.type,
       active: mod.active,
-      params: mod.params, 
-      onChange: (k: string, v: any) => handleUpdateModifier(mod.id, k, v), 
+      params: mod.params,
+      onChange: (k: string, v: any) => handleUpdateModifier(mod.id, k, v),
       onRemove: () => handleRemoveModifier(mod.id),
       onToggleActive: () => handleToggleActive(mod.id),
       onToggleFavorite: () => handleToggleFavorite(mod.id),
       onParamReset: (paramKey: string, defaultValue: any) => handleParamReset(mod.id, paramKey, defaultValue),
       isSelected: isSelected,
       // Fix: Use draggable attribute and onDragStart for HTML5 DnD
-      containerProps: { 
-        onMouseDown: handleContainerMouseDown, 
-        onDrop: (e:React.DragEvent) => onDrop(e, index), 
-        onDragOver,
+      containerProps: {
+        onMouseDown: handleContainerMouseDown,
+        onDrop: handleDrop,
+        onDragOver: handleDragOver,
+        onDragLeave: handleDragLeave,
         draggable: true,
         onDragStart: (e: React.DragEvent) => onDragStart(e, index)
-      }, 
-      dragHandleProps: {} 
+      },
+      dragHandleProps: {}
     };
 
-    return <NodeComponent {...finalProps} />;
+    return (
+      <div className="relative">
+        {isDragOver && (
+          <div className="absolute -top-1 left-0 right-0 h-0.5 bg-mw-accent shadow-[0_0_8px_rgba(139,92,246,0.8)] rounded-full z-50 animate-pulse" />
+        )}
+        <NodeComponent {...finalProps} />
+      </div>
+    );
 }

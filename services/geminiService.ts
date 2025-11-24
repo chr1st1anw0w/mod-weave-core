@@ -210,12 +210,12 @@ const handleChat = async (prompt: string, layers: Layer[], options: GeminiReques
   }
 
   config.systemInstruction = systemInstruction;
+  config.tools = [{ functionDeclarations: tools }];
 
   try {
     const chat = ai.chats.create({
       model: modelName,
       config,
-      tools: [{ functionDeclarations: tools }],
     });
 
     const response = await chat.sendMessage({ message: prompt });

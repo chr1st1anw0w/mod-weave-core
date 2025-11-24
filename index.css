@@ -1,0 +1,23 @@
+/* Mod-Weave Core Global Styles */
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Inter', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+code {
+  font-family: 'JetBrains Mono', monospace;
+}
+
+/* Ensure root takes full height */
+#root {
+  width: 100%;
+  height: 100vh;
+}
