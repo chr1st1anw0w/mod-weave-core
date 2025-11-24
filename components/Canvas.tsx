@@ -4,7 +4,8 @@ import { Layer, LayerType, ModifierType } from '../types';
 interface CanvasProps {
   layers: Layer[];
   selectedLayerId: string | null;
-  onSelectLayer: (id: string | null) => void;
+  selectedLayerIds?: string[];
+  onSelectLayer: (id: string | null, multiSelect?: boolean, rangeSelect?: boolean) => void;
 }
 
 /**
@@ -63,16 +64,16 @@ const getDynamicLayerStyle = (layer: Layer): React.CSSProperties => {
 };
 
 
-export const Canvas: React.FC<CanvasProps> = ({ layers, selectedLayerId, onSelectLayer }) => {
+export const Canvas: React.FC<CanvasProps> = ({ layers, selectedLayerId, selectedLayerIds = [], onSelectLayer }) => {
   return (
-    <div 
+    <div
       className="w-full h-full relative overflow-hidden cursor-default grid-bg"
-      onClick={() => onSelectLayer(null)}
+      onClick={() => onSelectLayer(null, false, false)}
     >
       {/* Mocking a center point */}
       <div className="absolute top-1/2 left-1/2 w-4 h-4 -mt-2 -ml-2 border border-white/5 rounded-full opacity-20 pointer-events-none" />
 
-      {layers.map(layer => {
+      {layers.filter(layer => layer.visible !== false).map(layer => {
         const dynamicStyle = getDynamicLayerStyle(layer);
 
         return (
@@ -80,7 +81,11 @@ export const Canvas: React.FC<CanvasProps> = ({ layers, selectedLayerId, onSelec
             key={layer.id}
             onClick={(e) => {
               e.stopPropagation();
-              onSelectLayer(layer.id);
+              if (!layer.locked) {
+                const multiSelect = e.metaKey || e.ctrlKey;
+                const rangeSelect = e.shiftKey;
+                onSelectLayer(layer.id, multiSelect, rangeSelect);
+              }
             }}
             style={{
               transform: `translate(${layer.x}px, ${layer.y}px) rotate(${layer.rotation}deg)`,
@@ -92,13 +97,18 @@ export const Canvas: React.FC<CanvasProps> = ({ layers, selectedLayerId, onSelec
             }}
             className={`
               absolute transition-all duration-100 group
-              ${selectedLayerId === layer.id ? 'z-10' : 'z-0'}
+              ${selectedLayerIds.includes(layer.id) ? 'z-10' : 'z-0'}
+              ${layer.locked ? 'cursor-not-allowed opacity-70' : 'cursor-pointer'}
             `}
           >
             {/* Visual Content */}
             <div className={`
               w-full h-full relative overflow-hidden
-              ${selectedLayerId === layer.id ? 'ring-2 ring-mw-accent shadow-[0_0_25px_rgba(139,92,246,0.5)]' : ''}
+              ${selectedLayerIds.includes(layer.id)
+                ? selectedLayerId === layer.id
+                  ? 'ring-2 ring-mw-accent shadow-[0_0_25px_rgba(139,92,246,0.5)]'  // Primary selection
+                  : 'ring-2 ring-mw-cyan/60 shadow-[0_0_15px_rgba(34,211,238,0.3)]'  // Secondary selection
+                : ''}
             `}>
               {layer.type === LayerType.IMAGE && (
                 <img src={layer.content} alt={layer.name} className="w-full h-full object-cover pointer-events-none" />
@@ -139,12 +149,12 @@ export const Canvas: React.FC<CanvasProps> = ({ layers, selectedLayerId, onSelec
             )}
             
             {/* Selection Handles */}
-            {selectedLayerId === layer.id && (
+            {selectedLayerIds.includes(layer.id) && (
               <>
-                <div className="absolute -top-1 -left-1 w-2.5 h-2.5 bg-white border border-mw-accent rounded-full cursor-nwse-resize" />
-                <div className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-white border border-mw-accent rounded-full cursor-nesw-resize" />
-                <div className="absolute -bottom-1 -left-1 w-2.5 h-2.5 bg-white border border-mw-accent rounded-full cursor-nesw-resize" />
-                <div className="absolute -bottom-1 -right-1 w-2.5 h-2.5 bg-white border border-mw-accent rounded-full cursor-nwse-resize" />
+                <div className={`absolute -top-1 -left-1 w-2.5 h-2.5 bg-white rounded-full cursor-nwse-resize ${selectedLayerId === layer.id ? 'border border-mw-accent' : 'border border-mw-cyan/60'}`} />
+                <div className={`absolute -top-1 -right-1 w-2.5 h-2.5 bg-white rounded-full cursor-nesw-resize ${selectedLayerId === layer.id ? 'border border-mw-accent' : 'border border-mw-cyan/60'}`} />
+                <div className={`absolute -bottom-1 -left-1 w-2.5 h-2.5 bg-white rounded-full cursor-nesw-resize ${selectedLayerId === layer.id ? 'border border-mw-accent' : 'border border-mw-cyan/60'}`} />
+                <div className={`absolute -bottom-1 -right-1 w-2.5 h-2.5 bg-white rounded-full cursor-nwse-resize ${selectedLayerId === layer.id ? 'border border-mw-accent' : 'border border-mw-cyan/60'}`} />
               </>
             )}
           </div>

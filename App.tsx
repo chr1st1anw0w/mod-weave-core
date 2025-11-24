@@ -160,6 +160,7 @@ const App = () => {
   const [selectedLayerId, setSelectedLayerId] = useState<string | null>(
     "cyber-orb"
   );
+  const [selectedLayerIds, setSelectedLayerIds] = useState<string[]>(["cyber-orb"]);
 
   const [messages, setMessages] = useState<ChatMessage[]>(INITIAL_MESSAGES);
   const [isChatOpen, setIsChatOpen] = useState(true);
@@ -225,6 +226,75 @@ const App = () => {
         return l;
       })
     );
+  };
+
+  const handleToggleVisibility = (layerId: string) => {
+    setLayersWithHistory((prev) =>
+      prev.map((l) =>
+        l.id === layerId ? { ...l, visible: l.visible === false ? true : false } : l
+      )
+    );
+  };
+
+  const handleToggleLock = (layerId: string) => {
+    setLayersWithHistory((prev) =>
+      prev.map((l) =>
+        l.id === layerId ? { ...l, locked: !l.locked } : l
+      )
+    );
+    // If locking the currently selected layer, deselect it
+    if (selectedLayerId === layerId) {
+      const layer = layers.find((l) => l.id === layerId);
+      if (layer && !layer.locked) {
+        setSelectedLayerId(null);
+        setSelectedLayerIds([]);
+      }
+    }
+  };
+
+  const handleSelectLayer = (layerId: string | null, multiSelect?: boolean, rangeSelect?: boolean) => {
+    if (layerId === null) {
+      // Deselect all
+      setSelectedLayerId(null);
+      setSelectedLayerIds([]);
+      return;
+    }
+
+    const layer = layers.find(l => l.id === layerId);
+    if (layer?.locked) {
+      // Cannot select locked layers
+      return;
+    }
+
+    if (multiSelect) {
+      // Cmd/Ctrl+Click: Toggle layer in selection
+      if (selectedLayerIds.includes(layerId)) {
+        const newIds = selectedLayerIds.filter(id => id !== layerId);
+        setSelectedLayerIds(newIds);
+        setSelectedLayerId(newIds.length > 0 ? newIds[newIds.length - 1] : null);
+      } else {
+        const newIds = [...selectedLayerIds, layerId];
+        setSelectedLayerIds(newIds);
+        setSelectedLayerId(layerId);
+      }
+    } else if (rangeSelect && selectedLayerId) {
+      // Shift+Click: Select range
+      const visibleLayers = layers.filter(l => l.visible !== false && !l.locked);
+      const currentIndex = visibleLayers.findIndex(l => l.id === selectedLayerId);
+      const targetIndex = visibleLayers.findIndex(l => l.id === layerId);
+
+      if (currentIndex !== -1 && targetIndex !== -1) {
+        const start = Math.min(currentIndex, targetIndex);
+        const end = Math.max(currentIndex, targetIndex);
+        const rangeIds = visibleLayers.slice(start, end + 1).map(l => l.id);
+        setSelectedLayerIds(rangeIds);
+        setSelectedLayerId(layerId);
+      }
+    } else {
+      // Normal click: Select single layer
+      setSelectedLayerId(layerId);
+      setSelectedLayerIds([layerId]);
+    }
   };
 
   const handleSendMessage = async (
@@ -397,14 +467,17 @@ const App = () => {
       </header>
 
       <main className="flex-1 relative z-0">
-        <Canvas layers={layers} selectedLayerId={selectedLayerId} onSelectLayer={setSelectedLayerId} />
+        <Canvas layers={layers} selectedLayerId={selectedLayerId} selectedLayerIds={selectedLayerIds} onSelectLayer={handleSelectLayer} />
       </main>
 
       {/* Desktop Panels / Mobile Modals */}
-      <LayerPanel 
-        layers={layers} 
-        selectedLayerId={selectedLayerId} 
-        onSelectLayer={setSelectedLayerId} 
+      <LayerPanel
+        layers={layers}
+        selectedLayerId={selectedLayerId}
+        selectedLayerIds={selectedLayerIds}
+        onSelectLayer={handleSelectLayer}
+        onToggleVisibility={handleToggleVisibility}
+        onToggleLock={handleToggleLock}
         className={activeMobilePanel === 'layers' ? 'fixed inset-0 z-50 w-full h-full max-h-full rounded-none' : 'hidden md:flex absolute top-20 left-6 w-64 max-h-[70vh]'}
       />
       

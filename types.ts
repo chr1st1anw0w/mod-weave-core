@@ -95,11 +95,13 @@ export interface Layer {
   height: number;
   rotation: number;
   opacity: number;
-  content?: string; 
-  style?: Record<string, any>; 
+  visible?: boolean; // Layer visibility control
+  locked?: boolean; // Prevent layer from being edited
+  content?: string;
+  style?: Record<string, any>;
   modifiers: Modifier[];
   connections?: Connection[]; // Node Wiring
-  children?: Layer[]; 
+  children?: Layer[];
 }
 
 export interface User {
