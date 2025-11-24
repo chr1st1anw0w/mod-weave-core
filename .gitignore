@@ -13,3 +13,7 @@ package-lock.json
 *.swp
 *.swo
 .cache
+
+# Deployment artifacts
+mod-weave-core-update.zip
+update-package/
