@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Layer, LayerType, ModifierType } from '../types';
 
 interface CanvasProps {
@@ -6,6 +6,7 @@ interface CanvasProps {
   selectedLayerId: string | null;
   selectedLayerIds?: string[];
   onSelectLayer: (id: string | null, multiSelect?: boolean, rangeSelect?: boolean) => void;
+  onUpdateLayer?: (layerId: string, updates: Partial<Layer>) => void;
 }
 
 /**
@@ -64,11 +65,104 @@ const getDynamicLayerStyle = (layer: Layer): React.CSSProperties => {
 };
 
 
-export const Canvas: React.FC<CanvasProps> = ({ layers, selectedLayerId, selectedLayerIds = [], onSelectLayer }) => {
+type TransformMode = 'move' | 'resize-nw' | 'resize-ne' | 'resize-sw' | 'resize-se' | 'rotate' | null;
+
+export const Canvas: React.FC<CanvasProps> = ({ layers, selectedLayerId, selectedLayerIds = [], onSelectLayer, onUpdateLayer }) => {
+  const [transformMode, setTransformMode] = useState<TransformMode>(null);
+  const [dragStart, setDragStart] = useState<{ x: number; y: number } | null>(null);
+  const [initialLayer, setInitialLayer] = useState<Layer | null>(null);
+
+  const handleTransformStart = (e: React.MouseEvent, layerId: string, mode: TransformMode) => {
+    e.stopPropagation();
+    const layer = layers.find(l => l.id === layerId);
+    if (!layer || layer.locked) return;
+
+    setTransformMode(mode);
+    setDragStart({ x: e.clientX, y: e.clientY });
+    setInitialLayer({ ...layer });
+  };
+
+  const handleTransformMove = (e: React.MouseEvent) => {
+    if (!transformMode || !dragStart || !initialLayer || !onUpdateLayer) return;
+
+    const dx = e.clientX - dragStart.x;
+    const dy = e.clientY - dragStart.y;
+
+    if (transformMode === 'move') {
+      // Move layer(s)
+      const updates = { x: initialLayer.x + dx, y: initialLayer.y + dy };
+
+      // Apply to all selected layers
+      selectedLayerIds.forEach(layerId => {
+        const layer = layers.find(l => l.id === layerId);
+        if (layer && !layer.locked) {
+          const offsetX = layer.id === initialLayer.id ? 0 : layer.x - initialLayer.x;
+          const offsetY = layer.id === initialLayer.id ? 0 : layer.y - initialLayer.y;
+          onUpdateLayer(layerId, {
+            x: initialLayer.x + dx + offsetX,
+            y: initialLayer.y + dy + offsetY
+          });
+        }
+      });
+    } else if (transformMode?.startsWith('resize-')) {
+      // Resize layer
+      const corner = transformMode.split('-')[1] as 'nw' | 'ne' | 'sw' | 'se';
+      let newWidth = initialLayer.width;
+      let newHeight = initialLayer.height;
+      let newX = initialLayer.x;
+      let newY = initialLayer.y;
+
+      if (corner === 'se') {
+        newWidth = Math.max(50, initialLayer.width + dx);
+        newHeight = Math.max(50, initialLayer.height + dy);
+      } else if (corner === 'nw') {
+        newWidth = Math.max(50, initialLayer.width - dx);
+        newHeight = Math.max(50, initialLayer.height - dy);
+        newX = initialLayer.x + dx;
+        newY = initialLayer.y + dy;
+      } else if (corner === 'ne') {
+        newWidth = Math.max(50, initialLayer.width + dx);
+        newHeight = Math.max(50, initialLayer.height - dy);
+        newY = initialLayer.y + dy;
+      } else if (corner === 'sw') {
+        newWidth = Math.max(50, initialLayer.width - dx);
+        newHeight = Math.max(50, initialLayer.height + dy);
+        newX = initialLayer.x + dx;
+      }
+
+      onUpdateLayer(initialLayer.id, { width: newWidth, height: newHeight, x: newX, y: newY });
+    } else if (transformMode === 'rotate') {
+      // Rotate layer
+      const centerX = initialLayer.x + initialLayer.width / 2;
+      const centerY = initialLayer.y + initialLayer.height / 2;
+
+      const angle1 = Math.atan2(dragStart.y - centerY, dragStart.x - centerX);
+      const angle2 = Math.atan2(e.clientY - centerY, e.clientX - centerX);
+      const deltaAngle = (angle2 - angle1) * (180 / Math.PI);
+
+      onUpdateLayer(initialLayer.id, { rotation: (initialLayer.rotation + deltaAngle) % 360 });
+    }
+  };
+
+  const handleTransformEnd = () => {
+    setTransformMode(null);
+    setDragStart(null);
+    setInitialLayer(null);
+  };
+
+  useEffect(() => {
+    if (transformMode) {
+      const handleMouseUp = () => handleTransformEnd();
+      window.addEventListener('mouseup', handleMouseUp);
+      return () => window.removeEventListener('mouseup', handleMouseUp);
+    }
+  }, [transformMode]);
+
   return (
     <div
       className="w-full h-full relative overflow-hidden cursor-default grid-bg"
       onClick={() => onSelectLayer(null, false, false)}
+      onMouseMove={handleTransformMove}
     >
       {/* Mocking a center point */}
       <div className="absolute top-1/2 left-1/2 w-4 h-4 -mt-2 -ml-2 border border-white/5 rounded-full opacity-20 pointer-events-none" />
@@ -81,10 +175,15 @@ export const Canvas: React.FC<CanvasProps> = ({ layers, selectedLayerId, selecte
             key={layer.id}
             onClick={(e) => {
               e.stopPropagation();
-              if (!layer.locked) {
+              if (!layer.locked && !transformMode) {
                 const multiSelect = e.metaKey || e.ctrlKey;
                 const rangeSelect = e.shiftKey;
                 onSelectLayer(layer.id, multiSelect, rangeSelect);
+              }
+            }}
+            onMouseDown={(e) => {
+              if (selectedLayerIds.includes(layer.id) && !layer.locked) {
+                handleTransformStart(e, layer.id, 'move');
               }
             }}
             style={{
@@ -98,7 +197,7 @@ export const Canvas: React.FC<CanvasProps> = ({ layers, selectedLayerId, selecte
             className={`
               absolute transition-all duration-100 group
               ${selectedLayerIds.includes(layer.id) ? 'z-10' : 'z-0'}
-              ${layer.locked ? 'cursor-not-allowed opacity-70' : 'cursor-pointer'}
+              ${layer.locked ? 'cursor-not-allowed opacity-70' : selectedLayerIds.includes(layer.id) ? 'cursor-move' : 'cursor-pointer'}
             `}
           >
             {/* Visual Content */}
@@ -149,12 +248,42 @@ export const Canvas: React.FC<CanvasProps> = ({ layers, selectedLayerId, selecte
             )}
             
             {/* Selection Handles */}
-            {selectedLayerIds.includes(layer.id) && (
+            {selectedLayerIds.includes(layer.id) && selectedLayerId === layer.id && (
               <>
-                <div className={`absolute -top-1 -left-1 w-2.5 h-2.5 bg-white rounded-full cursor-nwse-resize ${selectedLayerId === layer.id ? 'border border-mw-accent' : 'border border-mw-cyan/60'}`} />
-                <div className={`absolute -top-1 -right-1 w-2.5 h-2.5 bg-white rounded-full cursor-nesw-resize ${selectedLayerId === layer.id ? 'border border-mw-accent' : 'border border-mw-cyan/60'}`} />
-                <div className={`absolute -bottom-1 -left-1 w-2.5 h-2.5 bg-white rounded-full cursor-nesw-resize ${selectedLayerId === layer.id ? 'border border-mw-accent' : 'border border-mw-cyan/60'}`} />
-                <div className={`absolute -bottom-1 -right-1 w-2.5 h-2.5 bg-white rounded-full cursor-nwse-resize ${selectedLayerId === layer.id ? 'border border-mw-accent' : 'border border-mw-cyan/60'}`} />
+                {/* Corner Resize Handles */}
+                <div
+                  className="absolute -top-1 -left-1 w-2.5 h-2.5 bg-white rounded-full cursor-nwse-resize border border-mw-accent"
+                  onMouseDown={(e) => handleTransformStart(e, layer.id, 'resize-nw')}
+                />
+                <div
+                  className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-white rounded-full cursor-nesw-resize border border-mw-accent"
+                  onMouseDown={(e) => handleTransformStart(e, layer.id, 'resize-ne')}
+                />
+                <div
+                  className="absolute -bottom-1 -left-1 w-2.5 h-2.5 bg-white rounded-full cursor-nesw-resize border border-mw-accent"
+                  onMouseDown={(e) => handleTransformStart(e, layer.id, 'resize-sw')}
+                />
+                <div
+                  className="absolute -bottom-1 -right-1 w-2.5 h-2.5 bg-white rounded-full cursor-nwse-resize border border-mw-accent"
+                  onMouseDown={(e) => handleTransformStart(e, layer.id, 'resize-se')}
+                />
+                {/* Rotation Handle */}
+                <div
+                  className="absolute -top-8 left-1/2 -translate-x-1/2 w-3 h-3 bg-mw-accent rounded-full cursor-grab active:cursor-grabbing border border-white shadow-lg"
+                  onMouseDown={(e) => handleTransformStart(e, layer.id, 'rotate')}
+                  title="Rotate"
+                />
+                {/* Rotation Handle Connector Line */}
+                <div className="absolute -top-8 left-1/2 -translate-x-1/2 w-px h-7 bg-mw-accent/50 pointer-events-none" />
+              </>
+            )}
+            {/* Secondary Selection Indicators (no handles) */}
+            {selectedLayerIds.includes(layer.id) && selectedLayerId !== layer.id && (
+              <>
+                <div className="absolute -top-1 -left-1 w-2.5 h-2.5 bg-white rounded-full border border-mw-cyan/60" />
+                <div className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-white rounded-full border border-mw-cyan/60" />
+                <div className="absolute -bottom-1 -left-1 w-2.5 h-2.5 bg-white rounded-full border border-mw-cyan/60" />
+                <div className="absolute -bottom-1 -right-1 w-2.5 h-2.5 bg-white rounded-full border border-mw-cyan/60" />
               </>
             )}
           </div>

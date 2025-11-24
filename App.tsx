@@ -467,7 +467,7 @@ const App = () => {
       </header>
 
       <main className="flex-1 relative z-0">
-        <Canvas layers={layers} selectedLayerId={selectedLayerId} selectedLayerIds={selectedLayerIds} onSelectLayer={handleSelectLayer} />
+        <Canvas layers={layers} selectedLayerId={selectedLayerId} selectedLayerIds={selectedLayerIds} onSelectLayer={handleSelectLayer} onUpdateLayer={handleUpdateLayer} />
       </main>
 
       {/* Desktop Panels / Mobile Modals */}
