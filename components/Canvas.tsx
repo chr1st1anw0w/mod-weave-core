@@ -17,51 +17,232 @@ interface CanvasProps {
  */
 const getDynamicLayerStyle = (layer: Layer): React.CSSProperties => {
     const filters: string[] = [];
-    
+    const style: React.CSSProperties = {};
+
     if (layer.modifiers && layer.modifiers.length > 0) {
         for (const mod of layer.modifiers) {
             if (!mod.active) continue;
-            
+
             const params = mod.params;
-            
+
             switch (mod.type) {
+                // ===== BLUR EFFECTS =====
                 case ModifierType.GAUSSIAN_BLUR:
                 case ModifierType.BLUR:
-                case ModifierType.MOTION_BLUR:
-                case ModifierType.RADIAL_BLUR:
-                    filters.push(`blur(${params.radius || params.distance || params.amount || 0}px)`);
+                    filters.push(`blur(${params.radius || 0}px)`);
                     break;
-                
+
+                case ModifierType.MOTION_BLUR:
+                    // Approximate with blur + transform
+                    filters.push(`blur(${params.distance ? params.distance / 2 : 0}px)`);
+                    break;
+
+                case ModifierType.RADIAL_BLUR:
+                    filters.push(`blur(${params.amount || 0}px)`);
+                    break;
+
+                case ModifierType.TILT_SHIFT:
+                    filters.push(`blur(${params.blur || 0}px)`);
+                    break;
+
+                // ===== COLOR ADJUSTMENTS =====
                 case ModifierType.BRIGHTNESS_CONTRAST:
-                    if (params.brightness) filters.push(`brightness(${1 + (params.brightness || 0) / 100})`);
-                    if (params.contrast) filters.push(`contrast(${1 + (params.contrast || 0) / 100})`);
+                    if (params.brightness !== undefined) filters.push(`brightness(${1 + (params.brightness || 0) / 100})`);
+                    if (params.contrast !== undefined) filters.push(`contrast(${1 + (params.contrast || 0) / 100})`);
                     break;
 
                 case ModifierType.HUE_SATURATION:
-                    if (params.hue) filters.push(`hue-rotate(${params.hue || 0}deg)`);
-                    if (params.sat) filters.push(`saturate(${1 + (params.sat || 0) / 100})`);
+                    if (params.hue !== undefined) filters.push(`hue-rotate(${params.hue || 0}deg)`);
+                    if (params.sat !== undefined) filters.push(`saturate(${1 + (params.sat || 0) / 100})`);
                     break;
-                
+
                 case ModifierType.INVERT:
                     filters.push('invert(1)');
                     break;
 
+                case ModifierType.THRESHOLD:
+                    // Approximate with high contrast + brightness
+                    const threshLevel = (params.level || 128) / 255;
+                    filters.push(`contrast(10) brightness(${threshLevel})`);
+                    break;
+
+                case ModifierType.POSTERIZE:
+                    // Approximate with contrast
+                    const levels = params.levels || 4;
+                    filters.push(`contrast(${levels * 0.5})`);
+                    break;
+
+                case ModifierType.GRADIENT_MAP:
+                    // CSS cannot do gradient map, use subtle hue shift
+                    filters.push('hue-rotate(0deg)');
+                    break;
+
+                case ModifierType.COLOR_OVERLAY:
+                    const overlayOpacity = (params.opacity || 50) / 100;
+                    // Use mix-blend-mode for color overlay approximation
+                    style.mixBlendMode = 'overlay';
+                    style.opacity = overlayOpacity;
+                    break;
+
+                // ===== SHADOWS & LIGHTING =====
                 case ModifierType.DROP_SHADOW:
                     const distance = params.distance || 0;
                     const blur = params.blur || 0;
                     const color = params.color || 'rgba(0,0,0,0.5)';
-                    // Simple diagonal drop-shadow for real-time preview
                     filters.push(`drop-shadow(${distance * 0.7}px ${distance * 0.7}px ${blur}px ${color})`);
+                    break;
+
+                case ModifierType.INNER_SHADOW:
+                    // CSS cannot do inner shadow via filters, skip or approximate
+                    filters.push(`brightness(0.9)`);
+                    break;
+
+                case ModifierType.VIGNETTE:
+                    // Approximate with brightness reduction (not perfect)
+                    const vigAmount = (params.amount || 50) / 200;
+                    filters.push(`brightness(${1 - vigAmount})`);
+                    break;
+
+                case ModifierType.BLOOM:
+                    const bloomInt = params.intensity || 1;
+                    filters.push(`brightness(${1 + bloomInt * 0.3}) saturate(${1 + bloomInt * 0.2})`);
+                    break;
+
+                case ModifierType.LENS_FLARE:
+                    const flareBright = (params.brightness || 100) / 100;
+                    filters.push(`brightness(${flareBright}) saturate(1.3)`);
+                    break;
+
+                // ===== EFFECTS =====
+                case ModifierType.GLITCH:
+                    const glitchInt = (params.intensity || 50) / 100;
+                    filters.push(`hue-rotate(${glitchInt * 180}deg) saturate(${1 + glitchInt})`);
+                    break;
+
+                case ModifierType.CHROMATIC_ABERRATION:
+                    const shift = Math.abs(params.shift || 0);
+                    filters.push(`hue-rotate(${shift * 5}deg)`);
+                    break;
+
+                case ModifierType.NOISE:
+                    const noiseAmt = (params.amount || 10) / 100;
+                    filters.push(`contrast(${1 + noiseAmt * 0.2}) brightness(${1 - noiseAmt * 0.1})`);
+                    break;
+
+                case ModifierType.SHARPEN:
+                    const sharpenAmt = (params.amount || 50) / 100;
+                    filters.push(`contrast(${1 + sharpenAmt * 0.3})`);
+                    break;
+
+                // ===== STYLIZE =====
+                case ModifierType.PIXELATE:
+                    // CSS cannot do true pixelation, use small scale approximation
+                    const pixelSize = params.size || 10;
+                    style.imageRendering = pixelSize > 5 ? 'pixelated' : 'auto';
+                    break;
+
+                case ModifierType.HALFTONE_LUMA:
+                    // Approximate with contrast + desaturation
+                    filters.push('grayscale(0.5) contrast(1.3)');
+                    break;
+
+                case ModifierType.PEN_STROKES:
+                    // Approximate artistic style
+                    filters.push('contrast(1.2) saturate(1.1)');
+                    break;
+
+                case ModifierType.EMBOSS:
+                    // CSS cannot do true emboss, use grayscale + contrast
+                    const embossHeight = (params.height || 5) / 10;
+                    filters.push(`grayscale(1) contrast(${1 + embossHeight})`);
+                    break;
+
+                case ModifierType.BEVEL_EMBOSS:
+                    // Approximate with brightness + contrast
+                    filters.push('brightness(1.1) contrast(1.2)');
+                    break;
+
+                case ModifierType.DITHER:
+                    // Approximate with posterize effect
+                    filters.push('contrast(1.5)');
+                    break;
+
+                // ===== DISTORTION (Limited CSS support) =====
+                case ModifierType.WAVE:
+                    // CSS cannot do wave distortion, skip
+                    break;
+
+                case ModifierType.LIQUIFY:
+                    // CSS cannot do liquify, skip
+                    break;
+
+                case ModifierType.DISPLACEMENT_MAP:
+                    // CSS cannot do displacement, skip
+                    break;
+
+                case ModifierType.REFRACTION:
+                    // Approximate with blur
+                    const refrInt = params.intensity || 1;
+                    filters.push(`blur(${refrInt * 2}px)`);
+                    break;
+
+                case ModifierType.PERTURB:
+                    // Approximate with blur
+                    const perturbAmp = (params.amplitude || 10) / 5;
+                    filters.push(`blur(${perturbAmp}px)`);
+                    break;
+
+                case ModifierType.KALEIDOSCOPE:
+                    // CSS cannot do kaleidoscope, use hue rotation
+                    filters.push('hue-rotate(45deg) saturate(1.3)');
+                    break;
+
+                // ===== TRANSFORM =====
+                case ModifierType.STRETCH:
+                    const hStretch = (params.hStretch || 100) / 100;
+                    const vStretch = (params.vStretch || 100) / 100;
+                    style.transform = `scaleX(${hStretch}) scaleY(${vStretch})`;
+                    break;
+
+                case ModifierType.EXTRUDE:
+                    // 3D extrude approximation with shadow
+                    const depth = params.depth || 20;
+                    filters.push(`drop-shadow(${depth * 0.3}px ${depth * 0.3}px ${depth * 0.5}px rgba(0,0,0,0.5))`);
+                    break;
+
+                // ===== REPEATER & PATTERNS (Cannot preview in CSS) =====
+                case ModifierType.REPEATER:
+                case ModifierType.PARALLAX:
+                case ModifierType.OUTLINE:
+                    // These require actual rendering, skip preview
+                    break;
+
+                // ===== PHYSICS & ANIMATION (Cannot preview statically) =====
+                case ModifierType.PARTICLE_DISSOLVE:
+                case ModifierType.SPRING:
+                    // Physics-based, skip preview
+                    break;
+
+                // ===== AI EFFECTS (Require backend processing) =====
+                case ModifierType.AI_FILL:
+                case ModifierType.AI_GENERATION:
+                case ModifierType.REMOVE_BACKGROUND:
+                case ModifierType.SPLIT_TO_LAYERS:
+                    // AI-powered, skip preview
+                    break;
+
+                default:
+                    // Unknown modifier, no preview
                     break;
             }
         }
     }
-    
+
     if (filters.length > 0) {
-        return { filter: filters.join(' ') };
+        style.filter = filters.join(' ');
     }
-    
-    return {};
+
+    return style;
 };
 
 

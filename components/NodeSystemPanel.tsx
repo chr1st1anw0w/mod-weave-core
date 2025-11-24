@@ -301,21 +301,98 @@ export const NodeSystemPanel: React.FC<NodeSystemPanelProps> = ({ layer, onUpdat
         if(!m.active) continue;
         const params = m.params;
         switch(m.type) {
+          // ===== BLUR EFFECTS =====
           case ModifierType.GAUSSIAN_BLUR:
           case ModifierType.BLUR:
+            filters.push(`blur(${(params.radius || 0) / 10}px)`); break;
           case ModifierType.MOTION_BLUR:
+            filters.push(`blur(${(params.distance || 0) / 20}px)`); break;
           case ModifierType.RADIAL_BLUR:
+            filters.push(`blur(${(params.amount || 0) / 10}px)`); break;
           case ModifierType.TILT_SHIFT:
-            filters.push(`blur(${ (params.radius || params.distance || params.amount || params.blur || 0) / 10}px)`); break;
+            filters.push(`blur(${(params.blur || 0) / 10}px)`); break;
+
+          // ===== COLOR ADJUSTMENTS =====
           case ModifierType.BRIGHTNESS_CONTRAST:
-            filters.push(`brightness(${1 + (params.brightness||0)/100}) contrast(${1 + (params.contrast||0)/100})`); break;
+            if (params.brightness !== undefined) filters.push(`brightness(${1 + (params.brightness||0)/100})`);
+            if (params.contrast !== undefined) filters.push(`contrast(${1 + (params.contrast||0)/100})`);
+            break;
           case ModifierType.HUE_SATURATION:
-            filters.push(`hue-rotate(${params.hue||0}deg) saturate(${1 + (params.sat||0)/100})`); break;
-          case ModifierType.INVERT: filters.push('invert(1)'); break;
-          case ModifierType.GLITCH: filters.push(`grayscale(${params.intensity/100})`); break; // Simple approx
-          case ModifierType.CHROMATIC_ABERRATION: filters.push(`sepia(${Math.abs(params.shift||0)/5})`); break; // Simple approx
-          case ModifierType.DROP_SHADOW: 
-            filters.push(`drop-shadow(${params.distance/5}px ${params.distance/5}px ${params.blur/5}px ${params.color || 'rgba(0,0,0,0.5)'})`); break;
+            if (params.hue !== undefined) filters.push(`hue-rotate(${params.hue||0}deg)`);
+            if (params.sat !== undefined) filters.push(`saturate(${1 + (params.sat||0)/100})`);
+            break;
+          case ModifierType.INVERT:
+            filters.push('invert(1)'); break;
+          case ModifierType.THRESHOLD:
+            const threshLevel = (params.level || 128) / 255;
+            filters.push(`contrast(10) brightness(${threshLevel})`); break;
+          case ModifierType.POSTERIZE:
+            const levels = params.levels || 4;
+            filters.push(`contrast(${levels * 0.5})`); break;
+          case ModifierType.GRADIENT_MAP:
+            filters.push('hue-rotate(0deg)'); break;
+
+          // ===== SHADOWS & LIGHTING =====
+          case ModifierType.DROP_SHADOW:
+            const distance = (params.distance || 0) / 5;
+            const blur = (params.blur || 0) / 5;
+            filters.push(`drop-shadow(${distance}px ${distance}px ${blur}px ${params.color || 'rgba(0,0,0,0.5)'})`); break;
+          case ModifierType.INNER_SHADOW:
+            filters.push('brightness(0.9)'); break;
+          case ModifierType.VIGNETTE:
+            const vigAmount = (params.amount || 50) / 200;
+            filters.push(`brightness(${1 - vigAmount})`); break;
+          case ModifierType.BLOOM:
+            const bloomInt = params.intensity || 1;
+            filters.push(`brightness(${1 + bloomInt * 0.3}) saturate(${1 + bloomInt * 0.2})`); break;
+          case ModifierType.LENS_FLARE:
+            const flareBright = (params.brightness || 100) / 100;
+            filters.push(`brightness(${flareBright}) saturate(1.3)`); break;
+
+          // ===== EFFECTS =====
+          case ModifierType.GLITCH:
+            const glitchInt = (params.intensity || 50) / 100;
+            filters.push(`hue-rotate(${glitchInt * 180}deg) saturate(${1 + glitchInt})`); break;
+          case ModifierType.CHROMATIC_ABERRATION:
+            const shift = Math.abs(params.shift || 0);
+            filters.push(`hue-rotate(${shift * 5}deg)`); break;
+          case ModifierType.NOISE:
+            const noiseAmt = (params.amount || 10) / 100;
+            filters.push(`contrast(${1 + noiseAmt * 0.2}) brightness(${1 - noiseAmt * 0.1})`); break;
+          case ModifierType.SHARPEN:
+            const sharpenAmt = (params.amount || 50) / 100;
+            filters.push(`contrast(${1 + sharpenAmt * 0.3})`); break;
+
+          // ===== STYLIZE =====
+          case ModifierType.HALFTONE_LUMA:
+            filters.push('grayscale(0.5) contrast(1.3)'); break;
+          case ModifierType.PEN_STROKES:
+            filters.push('contrast(1.2) saturate(1.1)'); break;
+          case ModifierType.EMBOSS:
+            const embossHeight = (params.height || 5) / 10;
+            filters.push(`grayscale(1) contrast(${1 + embossHeight})`); break;
+          case ModifierType.BEVEL_EMBOSS:
+            filters.push('brightness(1.1) contrast(1.2)'); break;
+          case ModifierType.DITHER:
+            filters.push('contrast(1.5)'); break;
+
+          // ===== DISTORTION =====
+          case ModifierType.REFRACTION:
+            const refrInt = params.intensity || 1;
+            filters.push(`blur(${refrInt * 0.2}px)`); break;
+          case ModifierType.PERTURB:
+            const perturbAmp = (params.amplitude || 10) / 50;
+            filters.push(`blur(${perturbAmp}px)`); break;
+          case ModifierType.KALEIDOSCOPE:
+            filters.push('hue-rotate(45deg) saturate(1.3)'); break;
+
+          // ===== 3D EFFECTS =====
+          case ModifierType.EXTRUDE:
+            const depth = (params.depth || 20) / 10;
+            filters.push(`drop-shadow(${depth * 0.3}px ${depth * 0.3}px ${depth * 0.5}px rgba(0,0,0,0.5))`); break;
+
+          // Others cannot be previewed with CSS filters
+          default: break;
         }
      }
      return filters.join(' ');
