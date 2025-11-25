@@ -1,0 +1,724 @@
+import React, { useState } from 'react';
+import { Layer, LayerType, Modifier, ModifierType } from '../types';
+import { Icons } from './Icons';
+
+// Import all modifier metadata
+const MODIFIER_CATALOG = [
+  // --- CORE 15 MODIFIERS ---
+  { type: ModifierType.OUTLINE, label: 'Outline', category: 'Core', icon: Icons.Circle, color: 'text-cyan-400', params: [
+    { key: 'thickness', label: 'Thickness', min: 0, max: 100, def: 2, unit: 'px' },
+    { key: 'spacing', label: 'Spacing', min: 0, max: 50, def: 0, unit: 'px' },
+  ]},
+  { type: ModifierType.STRETCH, label: 'Stretch', category: 'Core', icon: Icons.MoveH, color: 'text-cyan-300', params: [
+    { key: 'scaleX', label: 'Scale X', min: 0.1, max: 3, def: 1 },
+    { key: 'scaleY', label: 'Scale Y', min: 0.1, max: 3, def: 1 },
+  ]},
+  { type: ModifierType.REPEATER, label: 'Repeater', category: 'Core', icon: Icons.Copy, color: 'text-cyan-200', params: [
+    { key: 'count', label: 'Count', min: 1, max: 20, def: 3 },
+    { key: 'offset', label: 'Offset', min: 0, max: 100, def: 10, unit: 'px' },
+  ]},
+  { type: ModifierType.PARTICLE_DISSOLVE, label: 'Particle Dissolve', category: 'Core', icon: Icons.Sparkles, color: 'text-purple-400', params: [
+    { key: 'amount', label: 'Amount', min: 0, max: 100, def: 50, unit: '%' },
+  ]},
+  { type: ModifierType.SPRING, label: 'Spring', category: 'Core', icon: Icons.Activity, color: 'text-green-400', params: [
+    { key: 'tension', label: 'Tension', min: 0, max: 100, def: 50 },
+    { key: 'damping', label: 'Damping', min: 0, max: 100, def: 10 },
+  ]},
+  { type: ModifierType.WAVE, label: 'Wave', category: 'Core', icon: Icons.Waves, color: 'text-blue-400', params: [
+    { key: 'amplitude', label: 'Amplitude', min: 0, max: 100, def: 10 },
+    { key: 'frequency', label: 'Frequency', min: 0, max: 10, def: 2 },
+  ]},
+  { type: ModifierType.PARALLAX, label: 'Parallax', category: 'Core', icon: Icons.Layers, color: 'text-indigo-400', params: [
+    { key: 'depth', label: 'Depth', min: 0, max: 100, def: 50 },
+  ]},
+  { type: ModifierType.AI_FILL, label: 'AI Fill', category: 'Core', icon: Icons.Brain, color: 'text-pink-400', params: []},
+  { type: ModifierType.GLITCH, label: 'Glitch', category: 'Core', icon: Icons.Zap, color: 'text-red-400', params: [
+    { key: 'intensity', label: 'Intensity', min: 0, max: 100, def: 50 },
+  ]},
+  { type: ModifierType.REFRACTION, label: 'Refraction', category: 'Core', icon: Icons.Glasses, color: 'text-teal-400', params: [
+    { key: 'amount', label: 'Amount', min: 0, max: 100, def: 30 },
+  ]},
+  { type: ModifierType.HALFTONE_LUMA, label: 'Halftone Luma', category: 'Core', icon: Icons.Grid, color: 'text-gray-400', params: [
+    { key: 'dotSize', label: 'Dot Size', min: 1, max: 20, def: 5 },
+  ]},
+  { type: ModifierType.EXTRUDE, label: 'Extrude', category: 'Core', icon: Icons.Box, color: 'text-orange-400', params: [
+    { key: 'depth', label: 'Depth', min: 0, max: 100, def: 20 },
+  ]},
+  { type: ModifierType.BRIGHTNESS_CONTRAST, label: 'Bright/Contrast', category: 'Core', icon: Icons.Sun, color: 'text-yellow-200', params: [
+    { key: 'brightness', label: 'Brightness', min: -100, max: 100, def: 0 },
+    { key: 'contrast', label: 'Contrast', min: -100, max: 100, def: 0 },
+  ]},
+  { type: ModifierType.GRADIENT_MAP, label: 'Gradient Map', category: 'Core', icon: Icons.Palette, color: 'text-purple-300', params: []},
+  { type: ModifierType.PERTURB, label: 'Perturb', category: 'Core', icon: Icons.Wind, color: 'text-cyan-500', params: [
+    { key: 'amount', label: 'Amount', min: 0, max: 100, def: 20 },
+  ]},
+
+  // --- BLUR EFFECTS ---
+  { type: ModifierType.GAUSSIAN_BLUR, label: 'Gaussian Blur', category: 'Blur', icon: Icons.CloudFog, color: 'text-blue-200', params: [
+    { key: 'radius', label: 'Radius', min: 0, max: 100, def: 5 },
+  ]},
+  { type: ModifierType.MOTION_BLUR, label: 'Motion Blur', category: 'Blur', icon: Icons.Wind, color: 'text-blue-300', params: [
+    { key: 'angle', label: 'Angle', min: 0, max: 360, def: 0, unit: '°' },
+    { key: 'distance', label: 'Distance', min: 0, max: 100, def: 10 },
+  ]},
+  { type: ModifierType.RADIAL_BLUR, label: 'Radial Blur', category: 'Blur', icon: Icons.Focus, color: 'text-blue-400', params: [
+    { key: 'amount', label: 'Amount', min: 0, max: 100, def: 20 },
+  ]},
+  { type: ModifierType.TILT_SHIFT, label: 'Tilt Shift', category: 'Blur', icon: Icons.Maximize, color: 'text-blue-500', params: [
+    { key: 'blur', label: 'Blur', min: 0, max: 100, def: 30 },
+    { key: 'gradientSize', label: 'Gradient', min: 0, max: 100, def: 50 },
+  ]},
+
+  // --- COLOR EFFECTS ---
+  { type: ModifierType.HUE_SATURATION, label: 'Hue/Saturation', category: 'Color', icon: Icons.Rainbow, color: 'text-yellow-400', params: [
+    { key: 'hue', label: 'Hue', min: 0, max: 360, def: 0, unit: '°' },
+    { key: 'sat', label: 'Saturation', min: -100, max: 100, def: 0, unit: '%' },
+  ]},
+  { type: ModifierType.COLOR_OVERLAY, label: 'Color Overlay', category: 'Color', icon: Icons.Droplets, color: 'text-yellow-300', params: [
+    { key: 'opacity', label: 'Opacity', min: 0, max: 100, def: 50, unit: '%' },
+  ]},
+  { type: ModifierType.INVERT, label: 'Invert', category: 'Color', icon: Icons.RefreshCcw, color: 'text-purple-400', params: []},
+  { type: ModifierType.POSTERIZE, label: 'Posterize', category: 'Color', icon: Icons.Palette, color: 'text-pink-400', params: [
+    { key: 'levels', label: 'Levels', min: 2, max: 20, def: 5 },
+  ]},
+  { type: ModifierType.THRESHOLD, label: 'Threshold', category: 'Color', icon: Icons.Binary, color: 'text-gray-300', params: [
+    { key: 'level', label: 'Level', min: 0, max: 255, def: 128 },
+  ]},
+  { type: ModifierType.CURVES, label: 'Curves', category: 'Color', icon: Icons.Activity, color: 'text-purple-200', params: []},
+  { type: ModifierType.CHROMATIC_ABERRATION, label: 'Chromatic Aberr', category: 'Color', icon: Icons.Aperture, color: 'text-red-300', params: [
+    { key: 'amount', label: 'Amount', min: 0, max: 100, def: 10 },
+  ]},
+
+  // --- STYLE EFFECTS ---
+  { type: ModifierType.DROP_SHADOW, label: 'Drop Shadow', category: 'Style', icon: Icons.CloudFog, color: 'text-gray-500', params: [
+    { key: 'distance', label: 'Distance', min: 0, max: 50, def: 5 },
+    { key: 'blur', label: 'Blur', min: 0, max: 50, def: 10 },
+  ]},
+  { type: ModifierType.INNER_SHADOW, label: 'Inner Shadow', category: 'Style', icon: Icons.SunDim, color: 'text-gray-600', params: [
+    { key: 'distance', label: 'Distance', min: 0, max: 50, def: 5 },
+    { key: 'blur', label: 'Blur', min: 0, max: 50, def: 10 },
+  ]},
+  { type: ModifierType.BEVEL_EMBOSS, label: 'Bevel/Emboss', category: 'Style', icon: Icons.Box, color: 'text-amber-400', params: [
+    { key: 'depth', label: 'Depth', min: 0, max: 100, def: 10 },
+    { key: 'size', label: 'Size', min: 0, max: 50, def: 5 },
+  ]},
+  { type: ModifierType.EMBOSS, label: 'Emboss', category: 'Style', icon: Icons.Stamp, color: 'text-amber-300', params: [
+    { key: 'height', label: 'Height', min: 0, max: 100, def: 20 },
+  ]},
+  { type: ModifierType.VIGNETTE, label: 'Vignette', category: 'Style', icon: Icons.Focus, color: 'text-slate-400', params: [
+    { key: 'amount', label: 'Amount', min: 0, max: 100, def: 50 },
+    { key: 'radius', label: 'Radius', min: 0, max: 100, def: 50 },
+  ]},
+  { type: ModifierType.LENS_FLARE, label: 'Lens Flare', category: 'Style', icon: Icons.Sun, color: 'text-yellow-500', params: [
+    { key: 'intensity', label: 'Intensity', min: 0, max: 100, def: 50 },
+  ]},
+  { type: ModifierType.BLOOM, label: 'Bloom', category: 'Style', icon: Icons.Sparkles, color: 'text-pink-300', params: [
+    { key: 'threshold', label: 'Threshold', min: 0, max: 100, def: 50 },
+    { key: 'intensity', label: 'Intensity', min: 0, max: 100, def: 30 },
+  ]},
+
+  // --- DISTORT EFFECTS ---
+  { type: ModifierType.LIQUIFY, label: 'Liquify', category: 'Distort', icon: Icons.Droplets, color: 'text-cyan-400', params: [
+    { key: 'amount', label: 'Amount', min: 0, max: 100, def: 20 },
+  ]},
+  { type: ModifierType.DISPLACEMENT_MAP, label: 'Displacement', category: 'Distort', icon: Icons.Move, color: 'text-purple-500', params: [
+    { key: 'scale', label: 'Scale', min: 0, max: 100, def: 10 },
+  ]},
+  { type: ModifierType.PIXELATE, label: 'Pixelate', category: 'Distort', icon: Icons.Grid, color: 'text-green-400', params: [
+    { key: 'size', label: 'Size', min: 1, max: 50, def: 5 },
+  ]},
+  { type: ModifierType.KALEIDOSCOPE, label: 'Kaleidoscope', category: 'Distort', icon: Icons.Hexagon, color: 'text-rainbow-400', params: [
+    { key: 'segments', label: 'Segments', min: 3, max: 12, def: 6 },
+  ]},
+
+  // --- SPECIAL EFFECTS ---
+  { type: ModifierType.NOISE, label: 'Noise', category: 'Special', icon: Icons.Tv, color: 'text-gray-400', params: [
+    { key: 'amount', label: 'Amount', min: 0, max: 100, def: 10, unit: '%' },
+  ]},
+  { type: ModifierType.SHARPEN, label: 'Sharpen', category: 'Special', icon: Icons.Focus, color: 'text-blue-500', params: [
+    { key: 'amount', label: 'Amount', min: 0, max: 100, def: 30 },
+  ]},
+  { type: ModifierType.DITHER, label: 'Dither', category: 'Special', icon: Icons.Tv, color: 'text-gray-500', params: [
+    { key: 'amount', label: 'Amount', min: 0, max: 100, def: 50 },
+  ]},
+
+  // --- AI FEATURES ---
+  { type: ModifierType.REMOVE_BACKGROUND, label: 'Remove BG', category: 'AI', icon: Icons.Eraser, color: 'text-pink-500', params: []},
+  { type: ModifierType.SPLIT_TO_LAYERS, label: 'Split Layers', category: 'AI', icon: Icons.Layers, color: 'text-indigo-500', params: []},
+  { type: ModifierType.PEN_STROKES, label: 'Pen Strokes', category: 'AI', icon: Icons.Pen, color: 'text-blue-600', params: [
+    { key: 'strokeWidth', label: 'Width', min: 1, max: 20, def: 3 },
+  ]},
+];
+
+const CATEGORIES = ['Core', 'Blur', 'Color', 'Style', 'Distort', 'Special', 'AI'];
+
+const getLayerStyle = (modifiers: Modifier[], soloModId?: string): React.CSSProperties => {
+  const filters: string[] = [];
+  const transforms: string[] = [];
+  const style: React.CSSProperties = {};
+
+  // 按照右側面板順序應用修飾器（從上到下）
+  const activeModifiers = soloModId
+    ? modifiers.filter(m => m.id === soloModId)
+    : modifiers.filter(m => m.active);
+
+  for (const mod of activeModifiers) {
+    const params = mod.params;
+
+    switch (mod.type) {
+      // BLUR EFFECTS
+      case ModifierType.GAUSSIAN_BLUR:
+      case ModifierType.BLUR:
+        filters.push(`blur(${params.radius || 0}px)`);
+        break;
+      case ModifierType.MOTION_BLUR:
+        filters.push(`blur(${params.distance || 0}px)`);
+        break;
+      case ModifierType.RADIAL_BLUR:
+        filters.push(`blur(${(params.amount || 0) / 5}px)`);
+        break;
+      case ModifierType.TILT_SHIFT:
+        filters.push(`blur(${(params.blur || 0) / 5}px)`);
+        break;
+
+      // COLOR EFFECTS
+      case ModifierType.BRIGHTNESS_CONTRAST:
+        if (params.brightness !== undefined && params.brightness !== 0) {
+          filters.push(`brightness(${1 + params.brightness / 100})`);
+        }
+        if (params.contrast !== undefined && params.contrast !== 0) {
+          filters.push(`contrast(${1 + params.contrast / 100})`);
+        }
+        break;
+      case ModifierType.HUE_SATURATION:
+        if (params.hue !== undefined && params.hue !== 0) {
+          filters.push(`hue-rotate(${params.hue}deg)`);
+        }
+        if (params.sat !== undefined && params.sat !== 0) {
+          filters.push(`saturate(${1 + params.sat / 100})`);
+        }
+        break;
+      case ModifierType.COLOR_OVERLAY:
+        if (params.opacity) {
+          style.backgroundColor = `rgba(128, 128, 255, ${params.opacity / 100})`;
+          style.mixBlendMode = 'overlay';
+        }
+        break;
+      case ModifierType.INVERT:
+        filters.push('invert(1)');
+        break;
+      case ModifierType.POSTERIZE:
+        // 簡化色階效果
+        filters.push(`contrast(${(params.levels || 5) * 20}%)`);
+        break;
+      case ModifierType.THRESHOLD:
+        filters.push(`contrast(500%) brightness(${(params.level || 128) / 128})`);
+        break;
+      case ModifierType.CHROMATIC_ABERRATION:
+        // 模擬色差效果
+        if (params.amount) {
+          filters.push(`contrast(${100 + params.amount / 2}%)`);
+        }
+        break;
+
+      // STYLE EFFECTS
+      case ModifierType.DROP_SHADOW:
+        const dist = (params.distance || 0) / 2;
+        const blur = (params.blur || 0) / 2;
+        filters.push(`drop-shadow(${dist}px ${dist}px ${blur}px rgba(0,0,0,0.5))`);
+        break;
+      case ModifierType.INNER_SHADOW:
+        // CSS filter 不支援內陰影，用 invert 模擬
+        filters.push(`brightness(0.8)`);
+        break;
+      case ModifierType.VIGNETTE:
+        // 暗角效果
+        if (params.amount) {
+          filters.push(`brightness(${1 - params.amount / 200})`);
+        }
+        break;
+      case ModifierType.BLOOM:
+        if (params.intensity) {
+          filters.push(`brightness(${1 + params.intensity / 100}) saturate(${1 + params.intensity / 100})`);
+        }
+        break;
+
+      // DISTORT EFFECTS (使用 transform)
+      case ModifierType.STRETCH:
+        transforms.push(`scale(${params.scaleX || 1}, ${params.scaleY || 1})`);
+        break;
+      case ModifierType.PIXELATE:
+        // 像素化效果（簡化版）
+        if (params.size) {
+          style.imageRendering = 'pixelated';
+          transforms.push(`scale(${1 - params.size / 100})`);
+        }
+        break;
+
+      // SPECIAL EFFECTS
+      case ModifierType.NOISE:
+        // 使用 grayscale 模擬噪點
+        filters.push(`grayscale(${(params.amount || 0) / 100})`);
+        break;
+      case ModifierType.SHARPEN:
+        if (params.amount) {
+          filters.push(`contrast(${100 + params.amount}%) brightness(${1 + params.amount / 200})`);
+        }
+        break;
+      case ModifierType.DITHER:
+        filters.push(`grayscale(${(params.amount || 0) / 200}) contrast(150%)`);
+        break;
+
+      // CORE EFFECTS
+      case ModifierType.GLITCH:
+        if (params.intensity) {
+          filters.push(`hue-rotate(${params.intensity * 3.6}deg) contrast(${100 + params.intensity}%)`);
+        }
+        break;
+      case ModifierType.WAVE:
+        // 波浪效果（簡化版使用 skew）
+        if (params.amplitude) {
+          transforms.push(`skewX(${params.amplitude / 10}deg)`);
+        }
+        break;
+      case ModifierType.REFRACTION:
+        if (params.amount) {
+          filters.push(`blur(${params.amount / 20}px) brightness(${1 + params.amount / 200})`);
+        }
+        break;
+      case ModifierType.PERTURB:
+        if (params.amount) {
+          transforms.push(`rotate(${params.amount / 10}deg)`);
+        }
+        break;
+
+      // 其他修飾器的基本視覺回饋
+      case ModifierType.OUTLINE:
+        style.outline = `${params.thickness || 2}px solid rgba(0, 255, 255, 0.5)`;
+        style.outlineOffset = `${params.spacing || 0}px`;
+        break;
+      case ModifierType.REPEATER:
+      case ModifierType.PARTICLE_DISSOLVE:
+      case ModifierType.SPRING:
+      case ModifierType.PARALLAX:
+      case ModifierType.AI_FILL:
+      case ModifierType.HALFTONE_LUMA:
+      case ModifierType.EXTRUDE:
+      case ModifierType.GRADIENT_MAP:
+      case ModifierType.BEVEL_EMBOSS:
+      case ModifierType.EMBOSS:
+      case ModifierType.LENS_FLARE:
+      case ModifierType.LIQUIFY:
+      case ModifierType.DISPLACEMENT_MAP:
+      case ModifierType.KALEIDOSCOPE:
+      case ModifierType.CURVES:
+      case ModifierType.REMOVE_BACKGROUND:
+      case ModifierType.SPLIT_TO_LAYERS:
+      case ModifierType.PEN_STROKES:
+        // 這些修飾器需要更複雜的實現（WebGL/Canvas），暫時添加視覺標記
+        style.border = '2px dashed rgba(255, 0, 255, 0.3)';
+        break;
+    }
+  }
+
+  // 組合所有樣式
+  if (filters.length > 0) {
+    style.filter = filters.join(' ');
+  }
+  if (transforms.length > 0) {
+    style.transform = transforms.join(' ');
+  }
+
+  return style;
+};
+
+// Resizable divider component
+const ResizableDivider: React.FC<{ onResize: (delta: number) => void }> = ({ onResize }) => {
+  const [isDragging, setIsDragging] = useState(false);
+
+  const handleMouseDown = () => {
+    setIsDragging(true);
+  };
+
+  React.useEffect(() => {
+    if (!isDragging) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      onResize(e.movementX);
+    };
+
+    const handleMouseUp = () => {
+      setIsDragging(false);
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isDragging, onResize]);
+
+  return (
+    <div
+      className={`w-1 bg-white/5 hover:bg-mw-accent/50 cursor-col-resize transition-colors flex-shrink-0 ${isDragging ? 'bg-mw-accent' : ''}`}
+      onMouseDown={handleMouseDown}
+    />
+  );
+};
+
+export const ModifierTestPage: React.FC = () => {
+  const [selectedCategory, setSelectedCategory] = useState<string>('Core');
+  const [leftWidth, setLeftWidth] = useState(256);
+  const [rightWidth, setRightWidth] = useState(380);
+  const [soloModId, setSoloModId] = useState<string | null>(null);
+  const [expandedMods, setExpandedMods] = useState<Set<string>>(new Set());
+  const [imageError, setImageError] = useState(false);
+
+  const [testLayer, setTestLayer] = useState<Layer>({
+    id: 'test-layer',
+    name: 'Test Layer',
+    type: LayerType.IMAGE,
+    x: 0,
+    y: 0,
+    width: 400,
+    height: 400,
+    rotation: 0,
+    opacity: 1,
+    content: 'https://images.unsplash.com/photo-1579546929518-9e396f3cc809?w=400&h=400&fit=crop',
+    modifiers: [],
+  });
+
+  const handleAddModifier = (type: ModifierType) => {
+    const meta = MODIFIER_CATALOG.find(m => m.type === type);
+    const defaultParams: Record<string, any> = {};
+    
+    meta?.params?.forEach(p => {
+      defaultParams[p.key] = p.def;
+    });
+    
+    const newModifier: Modifier = {
+      id: `mod-${Date.now()}`,
+      type,
+      name: meta?.label || 'New Modifier',
+      active: true,
+      params: defaultParams,
+    };
+    
+    setTestLayer(prev => ({
+      ...prev,
+      modifiers: [...prev.modifiers, newModifier]
+    }));
+    
+    // Auto-expand the new modifier
+    setExpandedMods(prev => new Set(prev).add(newModifier.id));
+  };
+
+  const handleToggleModifier = (modId: string) => {
+    setTestLayer(prev => ({
+      ...prev,
+      modifiers: prev.modifiers.map(m => 
+        m.id === modId ? { ...m, active: !m.active } : m
+      )
+    }));
+  };
+
+  const handleRemoveModifier = (modId: string) => {
+    setTestLayer(prev => ({
+      ...prev,
+      modifiers: prev.modifiers.filter(m => m.id !== modId)
+    }));
+    setExpandedMods(prev => {
+      const next = new Set(prev);
+      next.delete(modId);
+      return next;
+    });
+    if (soloModId === modId) setSoloModId(null);
+  };
+
+  const handleToggleSolo = (modId: string) => {
+    setSoloModId(prev => prev === modId ? null : modId);
+  };
+
+  const handleToggleExpand = (modId: string) => {
+    setExpandedMods(prev => {
+      const next = new Set(prev);
+      if (next.has(modId)) {
+        next.delete(modId);
+      } else {
+        next.add(modId);
+      }
+      return next;
+    });
+  };
+
+  const handleUpdateParam = (modId: string, paramKey: string, value: any) => {
+    setTestLayer(prev => ({
+      ...prev,
+      modifiers: prev.modifiers.map(m =>
+        m.id === modId ? { ...m, params: { ...m.params, [paramKey]: value } } : m
+      )
+    }));
+  };
+
+  const handleClearAll = () => {
+    setTestLayer(prev => ({
+      ...prev,
+      modifiers: []
+    }));
+    setSoloModId(null);
+    setExpandedMods(new Set());
+  };
+
+  const filteredModifiers = MODIFIER_CATALOG.filter(m => m.category === selectedCategory);
+  const layerStyle = getLayerStyle(testLayer.modifiers, soloModId || undefined);
+
+  return (
+    <div className="h-screen bg-[#0a0a0a] text-white flex flex-col overflow-hidden">
+      {/* Header */}
+      <div className="flex-shrink-0 p-4 border-b border-white/10">
+        <h1 className="text-2xl font-bold bg-gradient-to-r from-mw-accent to-mw-cyan bg-clip-text text-transparent">
+          修飾器測試頁面
+        </h1>
+        <p className="text-xs text-gray-500 mt-1">測試所有修飾器 • 可調整欄位寬度 • Solo 模式</p>
+      </div>
+
+      {/* Three Column Layout with Resizable Dividers */}
+      <div className="flex-1 flex overflow-hidden">
+        {/* Left Sidebar - Modifier Catalog */}
+        <div style={{ width: leftWidth }} className="flex-shrink-0 flex flex-col overflow-hidden border-r border-white/10">
+          <div className="flex-shrink-0 p-4 border-b border-white/10">
+            <h2 className="text-sm font-semibold mb-3">修飾器目錄</h2>
+            
+            <div className="flex flex-wrap gap-1">
+              {CATEGORIES.map(cat => (
+                <button
+                  key={cat}
+                  onClick={() => setSelectedCategory(cat)}
+                  className={`px-2 py-1 rounded text-[10px] font-medium transition-all ${
+                    selectedCategory === cat
+                      ? 'bg-mw-accent text-white'
+                      : 'bg-black/30 text-gray-400 hover:bg-black/50'
+                  }`}
+                >
+                  {cat}
+                </button>
+              ))}
+            </div>
+          </div>
+          
+          <div className="flex-1 overflow-y-auto p-3 space-y-1.5">
+            {filteredModifiers.map((modifier) => {
+              const Icon = modifier.icon;
+              const isApplied = testLayer.modifiers.some(m => m.type === modifier.type);
+              
+              return (
+                <button
+                  key={modifier.type}
+                  onClick={() => handleAddModifier(modifier.type)}
+                  className={`w-full flex items-center gap-2 p-2 rounded-lg border transition-all text-left ${
+                    isApplied
+                      ? 'bg-mw-accent/10 border-mw-accent/30'
+                      : 'bg-black/20 border-white/5 hover:bg-black/40'
+                  }`}
+                >
+                  <Icon size={14} className={modifier.color} />
+                  <span className="text-xs font-medium flex-1">{modifier.label}</span>
+                  {isApplied && <div className="w-1.5 h-1.5 rounded-full bg-mw-accent" />}
+                </button>
+              );
+            })}
+          </div>
+          
+          <div className="flex-shrink-0 p-3 border-t border-white/10 bg-black/20">
+            <div className="text-center space-y-1">
+              <div className="text-lg font-bold text-mw-accent">{filteredModifiers.length}</div>
+              <div className="text-[10px] text-gray-500">{selectedCategory} 修飾器</div>
+              <div className="text-[9px] text-gray-600">總計 {MODIFIER_CATALOG.length} 個</div>
+            </div>
+          </div>
+        </div>
+
+        {/* Resizable Divider 1 */}
+        <ResizableDivider onResize={(delta) => setLeftWidth(prev => Math.max(200, Math.min(400, prev + delta)))} />
+
+        {/* Center - Preview */}
+        <div className="flex-1 flex flex-col overflow-hidden">
+          <div className="flex-shrink-0 p-4 border-b border-white/10">
+            <h2 className="text-lg font-semibold">
+              預覽圖層
+              {soloModId && <span className="ml-2 text-xs text-mw-cyan">(Solo 模式)</span>}
+            </h2>
+          </div>
+          
+          <div className="flex-1 overflow-y-auto p-6 flex items-center justify-center bg-black/30">
+            <div
+              className="relative transition-all duration-300"
+              style={{
+                width: 350,
+                height: 350,
+                maxWidth: '100%',
+                ...layerStyle
+              }}
+            >
+              {imageError ? (
+                <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-mw-accent/20 to-mw-cyan/20 rounded-lg border-2 border-mw-accent/30">
+                  <div className="text-center">
+                    <Icons.Image size={64} className="mx-auto mb-3 text-mw-accent/50" />
+                    <p className="text-sm text-gray-400">圖片載入失敗</p>
+                    <button
+                      onClick={() => setImageError(false)}
+                      className="mt-3 px-3 py-1 bg-mw-accent/20 hover:bg-mw-accent/30 border border-mw-accent/50 rounded text-xs transition-all"
+                    >
+                      重新載入
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <img
+                  src={testLayer.content}
+                  alt="Test Layer"
+                  className="w-full h-full object-cover rounded-lg shadow-2xl"
+                  onError={() => setImageError(true)}
+                  crossOrigin="anonymous"
+                />
+              )}
+
+              {testLayer.modifiers.length > 0 && !imageError && (
+                <div className="absolute bottom-3 right-3 bg-black/90 backdrop-blur px-3 py-1.5 rounded-full border border-mw-accent/50">
+                  <span className="text-xs text-mw-accent font-bold">
+                    {soloModId ? '1 Solo' : `${testLayer.modifiers.filter(m => m.active).length} / ${testLayer.modifiers.length}`}
+                  </span>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Resizable Divider 2 */}
+        <ResizableDivider onResize={(delta) => setRightWidth(prev => Math.max(320, Math.min(600, prev - delta)))} />
+
+        {/* Right Sidebar - Modifier Controls */}
+        <div style={{ width: rightWidth }} className="flex-shrink-0 border-l border-white/10 flex flex-col overflow-hidden">
+          <div className="flex-shrink-0 p-4 border-b border-white/10 flex items-center justify-between">
+            <h2 className="text-lg font-semibold">修飾器操作</h2>
+            <button
+              onClick={handleClearAll}
+              className="px-3 py-1 bg-red-500/20 hover:bg-red-500/30 border border-red-500/50 rounded text-xs transition-all"
+            >
+              清除全部
+            </button>
+          </div>
+          
+          <div className="flex-1 overflow-y-auto p-4">
+            {testLayer.modifiers.length === 0 ? (
+              <div className="h-full flex flex-col items-center justify-center text-center text-gray-600">
+                <Icons.Box size={48} className="mb-3 opacity-20" />
+                <p className="text-sm font-medium">尚未添加修飾器</p>
+                <p className="text-xs mt-1 text-gray-700">從左側目錄選擇修飾器</p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {testLayer.modifiers.map((mod, index) => {
+                  const meta = MODIFIER_CATALOG.find(m => m.type === mod.type);
+                  const Icon = meta?.icon || Icons.Box;
+                  const isExpanded = expandedMods.has(mod.id);
+                  const isSolo = soloModId === mod.id;
+                  
+                  return (
+                    <div
+                      key={mod.id}
+                      className={`rounded-lg border transition-all ${
+                        mod.active && !soloModId
+                          ? 'bg-mw-accent/10 border-mw-accent/30' 
+                          : isSolo
+                          ? 'bg-mw-cyan/10 border-mw-cyan/30'
+                          : 'bg-black/30 border-white/5 opacity-60'
+                      }`}
+                    >
+                      {/* Header */}
+                      <div className="p-3 flex items-center justify-between">
+                        <div className="flex items-center gap-2 flex-1">
+                          <span className="text-[10px] text-gray-600 font-mono">#{index + 1}</span>
+                          <Icon size={14} className={meta?.color || 'text-gray-400'} />
+                          <span className="text-sm font-medium">{mod.name}</span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          {/* Solo Button */}
+                          <button
+                            onClick={() => handleToggleSolo(mod.id)}
+                            className={`p-1 rounded transition-all ${
+                              isSolo
+                                ? 'bg-mw-cyan/30 text-mw-cyan' 
+                                : 'bg-gray-500/20 text-gray-500 hover:text-mw-cyan'
+                            }`}
+                            title="Solo 模式"
+                          >
+                            <Icons.Eye size={12} />
+                          </button>
+                          {/* Power Button */}
+                          <button
+                            onClick={() => handleToggleModifier(mod.id)}
+                            className={`p-1 rounded transition-all ${
+                              mod.active 
+                                ? 'bg-green-500/20 text-green-400' 
+                                : 'bg-gray-500/20 text-gray-500'
+                            }`}
+                            title={mod.active ? '停用' : '啟用'}
+                          >
+                            <Icons.Power size={12} />
+                          </button>
+                          {/* Delete Button */}
+                          <button
+                            onClick={() => handleRemoveModifier(mod.id)}
+                            className="p-1 rounded bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-all"
+                            title="移除"
+                          >
+                            <Icons.Trash2 size={12} />
+                          </button>
+                          {/* Expand/Collapse Button */}
+                          <button
+                            onClick={() => handleToggleExpand(mod.id)}
+                            className="p-1 rounded bg-white/10 hover:bg-white/20 transition-all"
+                            title={isExpanded ? '折疊' : '展開'}
+                          >
+                            {isExpanded ? <Icons.ChevronUp size={12} /> : <Icons.ChevronDown size={12} />}
+                          </button>
+                        </div>
+                      </div>
+                      
+                      {/* Parameters (Expandable) */}
+                      {isExpanded && meta?.params && (
+                        <div className="px-3 pb-3 pt-0 space-y-2 border-t border-white/5">
+                          {meta.params.map(param => (
+                            <div key={param.key} className="space-y-1">
+                              <div className="flex items-center justify-between">
+                                <label className="text-[10px] text-gray-400">{param.label}</label>
+                                <span className="text-[10px] text-gray-500 font-mono">
+                                  {mod.params[param.key] ?? param.def}{param.unit || ''}
+                                </span>
+                              </div>
+                              <input
+                                type="range"
+                                min={param.min}
+                                max={param.max}
+                                value={mod.params[param.key] ?? param.def}
+                                onChange={(e) => handleUpdateParam(mod.id, param.key, parseFloat(e.target.value))}
+                                className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-mw-accent"
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};

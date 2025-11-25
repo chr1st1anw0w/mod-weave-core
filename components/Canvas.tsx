@@ -588,6 +588,12 @@ export const Canvas: React.FC<CanvasProps> = ({ layers, selectedLayerId, selecte
                 handleTouchStart(e, layer.id);
               }
             }}
+            onDoubleClick={(e) => {
+              e.stopPropagation();
+              if (onEnterEditMode) {
+                onEnterEditMode(layer.id);
+              }
+            }}
             style={{
               transform: `translate(${layer.x}px, ${layer.y}px) rotate(${layer.rotation}deg)`,
               width: layer.width,

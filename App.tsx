@@ -1,10 +1,16 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { LayerPanel } from "./components/LayerPanel";
 import { ChatPanel } from "./components/ChatPanel";
 import { NodeSystemPanel } from "./components/NodeSystemPanel";
+import { PatternGeneratorPanel } from "./components/PatternGeneratorPanel";
 import { Canvas } from "./components/Canvas";
 import { CommandPalette } from "./components/CommandPalette";
+import { LayerEditPage } from "./components/LayerEditPage";
 import { Icons } from "./components/Icons";
+import { useHistory } from "./hooks/useHistory";
+import { useChat } from "./hooks/useChat";
+import html2canvas from 'html2canvas';
+import { generateSVG } from "./services/patternGenerator";
 import {
   Layer,
   LayerType,
@@ -13,10 +19,6 @@ import {
   AiAction,
   Modifier,
 } from "./types";
-import {
-  processGeminiRequest,
-  GeminiRequestOptions,
-} from "./services/geminiService";
 
 // --- COMPLEX INITIAL DATA ---
 const INITIAL_LAYERS: Layer[] = [
@@ -142,21 +144,38 @@ const INITIAL_LAYERS: Layer[] = [
       textShadow: "0 0 10px rgba(6,182,212,0.5)",
     },
   },
-];
-
-const INITIAL_MESSAGES: ChatMessage[] = [
   {
-    id: "welcome",
-    senderId: "ai",
-    text: "Welcome to Mod-Weave Core. The 'Cyber Orb' scene is loaded. Try selecting a layer and asking me to change it, like 'make the orb's glow more intense' or 'add a glitch effect to the orb'.",
-    timestamp: Date.now(),
-  },
+    id: 'procedural-pattern',
+    name: 'Swiss Pattern',
+    type: LayerType.PROCEDURAL,
+    x: 100,
+    y: 100,
+    width: 600,
+    height: 400,
+    rotation: 0,
+    opacity: 1,
+    modifiers: [],
+    patternState: {
+        grid: { width: 40, height: 40, spacingX: 50, spacingY: 50, cols: 10, rows: 6 },
+        unit: { shape: 'rect', strokeWidth: 0, strokeColor: '#ffffff', borderRadius: 0, customSvg: null },
+        transform: { rotation: 0, variance: 0, scaleX: 1.0, scaleY: 1.0, skewX: 0, skewY: 0 },
+        sequence: { type: 'none', min: -0.1, max: 0.1, direction: 'row', angle: 0, reverse: false, applyTo: ['size'], customValues: [] },
+        mask: { type: 'image', imageUrl: null, opacity: 100, perlin: { scale: 20, seed: 12345 }, settings: { width: { enabled: false, min: 10, max: 60 }, height: { enabled: false, min: 10, max: 60 }, opacity: { enabled: false, min: 0, max: 1 }, rotation: { enabled: false, min: -45, max: 45 }, radius: { enabled: false, min: 0, max: 50 }, color: { enabled: false, min: 0, max: 50 }, strokeWidth: { enabled: false, min: 0, max: 10 }, x: { enabled: false, min: -50, max: 50 }, y: { enabled: false, min: -50, max: 50 } } },
+        distortion: { waveAmount: 0, waveFreq: 1, vortexAmount: 0, vortexRadius: 200 },
+        colors: { background: '#0a0a0a', gradient: { type: 'linear', angle: 45, stops: [{ id: '1', color: '#00dc82', position: 0 }, { id: '2', color: '#007fdc', position: 100 }] } }
+    }
+  }
 ];
 
 const App = () => {
-  const [history, setHistory] = useState<Layer[][]>([INITIAL_LAYERS]);
-  const [historyIndex, setHistoryIndex] = useState(0);
-  const layers = history[historyIndex];
+  const {
+    state: layers,
+    setState: setLayers,
+    undo,
+    redo,
+    canUndo,
+    canRedo,
+  } = useHistory<Layer[]>(INITIAL_LAYERS);
   const [selectedLayerId, setSelectedLayerId] = useState<string | null>(
     "cyber-orb"
   );
@@ -168,24 +187,13 @@ const App = () => {
   const [uploadedImage, setUploadedImage] = useState<string | null>(null);
   const [isCmdKOpen, setIsCmdKOpen] = useState(false);
 
-  const setLayersWithHistory = (
-    newLayers: Layer[] | ((prev: Layer[]) => Layer[])
-  ) => {
-    const nextLayers =
-      typeof newLayers === "function" ? newLayers(layers) : newLayers;
-    const newHistory = history.slice(0, historyIndex + 1);
-    newHistory.push(nextLayers);
-    if (newHistory.length > 50) newHistory.shift();
-    setHistory(newHistory);
-    setHistoryIndex(newHistory.length - 1);
-  };
-
-  const handleUndo = () => {
-    if (historyIndex > 0) setHistoryIndex(historyIndex - 1);
-  };
-  const handleRedo = () => {
-    if (historyIndex < history.length - 1) setHistoryIndex(historyIndex + 1);
-  };
+  const {
+    messages,
+    isThinking,
+    uploadedImage,
+    setUploadedImage,
+    sendMessage,
+  } = useChat(layers, selectedLayerId);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -195,37 +203,113 @@ const App = () => {
           setIsCmdKOpen((p) => !p);
         } else if (e.key === "z") {
           e.preventDefault();
-          e.shiftKey ? handleRedo() : handleUndo();
+          e.shiftKey ? redo() : undo();
         }
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [historyIndex, history.length]);
+  }, [undo, redo]);
 
-  const handleUpdateLayer = (layerId: string, updates: Partial<Layer>) => {
-    setLayersWithHistory((prev) =>
+  useEffect(() => {
+    // Debounce state updates to avoid re-generating SVG on every small change.
+    const handler = setTimeout(() => {
+        let needsUpdate = false;
+        const newLayers = layers.map(layer => {
+            if (layer.type === LayerType.PROCEDURAL && layer.patternState) {
+                const newSvg = generateSVG(layer.patternState, null);
+                const newContent = `data:image/svg+xml;base64,${btoa(newSvg)}`;
+                if (newContent !== layer.content) {
+                    needsUpdate = true;
+                    return { ...layer, content: newContent };
+                }
+            }
+            return layer;
+        });
+
+        if (needsUpdate) {
+            setLayers(newLayers, true); // Add a flag to skip history for this update
+        }
+    }, 200);
+
+    return () => clearTimeout(handler);
+  }, [layers, setLayers]);
+
+  const handleUpdateLayer = useCallback((layerId: string, updates: Partial<Layer>) => {
+    setLayers((prev) =>
       prev.map((l) => {
         if (l.id === layerId) {
-          // Handle favorite/lastUsed updates for modifiers
-          if (updates.modifiers) {
-            updates.modifiers.forEach((updatedMod) => {
-              const existingMod = l.modifiers.find(
-                (m) => m.id === updatedMod.id
-              );
+          let finalUpdates = { ...updates };
+
+          // Immutable update for modifiers to handle metadata like lastUsed/isFavorite
+          if (finalUpdates.modifiers) {
+            finalUpdates.modifiers = finalUpdates.modifiers.map(updatedMod => {
+              const existingMod = l.modifiers.find(m => m.id === updatedMod.id);
               if (existingMod) {
-                updatedMod.lastUsed = Date.now();
-                // Preserve favorite status if it's not explicitly updated
-                updatedMod.isFavorite =
-                  updatedMod.isFavorite ?? existingMod.isFavorite;
+                return {
+                  ...updatedMod,
+                  lastUsed: Date.now(),
+                  // Preserve favorite status if it's not explicitly updated
+                  isFavorite: updatedMod.isFavorite ?? existingMod.isFavorite,
+                };
               }
+              return updatedMod;
             });
           }
-          return { ...l, ...updates };
+          return { ...l, ...finalUpdates };
         }
         return l;
       })
     );
+  }, [setLayers]);
+
+  const handleCreateGroup = useCallback(() => {
+    const newGroup: Layer = {
+      id: `grp-${Date.now()}`,
+      name: 'New Group',
+      type: LayerType.GROUP,
+      x: 0,
+      y: 0,
+      width: 400,
+      height: 400,
+      rotation: 0,
+      opacity: 1,
+      modifiers: [],
+      children: [],
+    };
+    setLayers((prev) => [...prev, newGroup]);
+  }, [setLayers]);
+
+  const handleImportImage = useCallback((imageData: string) => {
+    const newImageLayer: Layer = {
+      id: `img-${Date.now()}`,
+      name: 'Imported Image',
+      type: LayerType.IMAGE,
+      x: 150,
+      y: 150,
+      width: 512,
+      height: 512,
+      rotation: 0,
+      opacity: 1,
+      content: imageData,
+      modifiers: [],
+    };
+    setLayers((prev) => [...prev, newImageLayer]);
+  }, [setLayers]);
+
+  const handleExport = () => {
+    const element = document.getElementById('canvas-to-export');
+    if (element) {
+      html2canvas(element, {
+        backgroundColor: '#121214', // Match the app's background
+        useCORS: true, // If you have external images
+      }).then(canvas => {
+        const link = document.createElement('a');
+        link.download = 'mod-weave-export.png';
+        link.href = canvas.toDataURL('image/png');
+        link.click();
+      });
+    }
   };
 
   const handleToggleVisibility = (layerId: string) => {
@@ -313,20 +397,67 @@ const App = () => {
               type: "image",
               url: `data:image/png;base64,${options.uploadedImage}`,
             }
-          : undefined,
-      },
-    ]);
-    setIsThinking(true);
+            for (const layer of list) {
+                if (layer.children) {
+                    const newChildren = findAndRemove(layer.children);
+                    if (newChildren !== layer.children) { // Found and removed
+                        layer.children = newChildren;
+                        return list;
+                    }
+                }
+            }
+            return list;
+        };
 
-    const selectedLayer = selectedLayerId
-      ? layers.find((l) => l.id === selectedLayerId)
-      : null;
-    const response = await processGeminiRequest(text, layers, {
-      ...options,
-      selectedLayer,
+        layers = findAndRemove(layers);
+
+        if (!draggedLayer) return prev; // Should not happen
+
+        // Reset parentId before placing it
+        delete draggedLayer.parentId;
+
+        if (targetId === null) { // Dropped at the root
+            layers.push(draggedLayer);
+        } else {
+            // Find the target and insert the layer
+            let targetFound = false;
+            const findAndInsert = (list: Layer[]) => {
+                const targetIndex = list.findIndex(l => l.id === targetId);
+                if (targetIndex !== -1) {
+                    const targetLayer = list[targetIndex];
+                    if (targetLayer.type === LayerType.GROUP) {
+                        // Drop into a group
+                        targetLayer.children = targetLayer.children || [];
+                        targetLayer.children.push(draggedLayer);
+                        draggedLayer.parentId = targetLayer.id;
+                    } else {
+                        // Drop onto a layer, insert before it
+                        list.splice(targetIndex, 0, draggedLayer);
+                    }
+                    targetFound = true;
+                    return;
+                }
+                for (const layer of list) {
+                    if (layer.children) findAndInsert(layer.children);
+                    if (targetFound) return;
+                }
+            };
+            findAndInsert(layers);
+
+            if (!targetFound) { // If target wasn't in any list (e.g., something went wrong), add to root
+                layers.push(draggedLayer);
+            }
+        }
+
+        return layers;
     });
+  }, [setLayers]);
 
-    setIsThinking(false);
+  const handleSendMessage = async (
+    text: string,
+    options: { uploadedImage: string | null, useFastMode: boolean }
+  ) => {
+    const response = await sendMessage(text, options);
 
     // --- Handle AI Actions ---
     if (
@@ -334,7 +465,7 @@ const App = () => {
       response.actionPayload &&
       selectedLayerId
     ) {
-      setLayersWithHistory((prevLayers) => {
+      setLayers((prevLayers) => {
         return prevLayers.map((layer) => {
           if (layer.id !== selectedLayerId) return layer;
 
@@ -412,7 +543,7 @@ const App = () => {
         modifiers: [],
         connections: [],
       };
-      setLayersWithHistory((prev) => [...prev, newLayer]);
+      setLayers((prev) => [...prev, newLayer]);
       setSelectedLayerId(newLayer.id);
     } else if (
       response.actionType === "UPDATE_LAYER" &&
@@ -424,26 +555,32 @@ const App = () => {
       });
     }
 
-    setMessages((prev) => [
-      ...prev,
-      {
-        id: (Date.now() + 1).toString(),
-        senderId: "ai",
-        text: response.text,
-        timestamp: Date.now(),
-        attachment: response.generatedImage
-          ? {
-              type: "image",
-              url: `data:image/png;base64,${response.generatedImage}`,
-            }
-          : undefined,
-      },
-    ]);
   };
 
   const selectedLayer = layers.find((l) => l.id === selectedLayerId) || null;
+  const editingLayer = editingLayerId ? layers.find((l) => l.id === editingLayerId) : null;
 
   const [activeMobilePanel, setActiveMobilePanel] = useState<'layers' | 'nodes' | 'chat' | null>(null);
+
+  const handleEnterEditMode = (layerId: string) => {
+    setEditingLayerId(layerId);
+    setViewMode('edit');
+  };
+
+  const handleExitEditMode = () => {
+    setViewMode('main');
+  };
+
+  // If edit page is active, show it
+  if (viewMode === 'edit' && editingLayer) {
+    return (
+      <LayerEditPage
+        layer={editingLayer}
+        onUpdateLayer={handleUpdateLayer}
+        onExit={handleExitEditMode}
+      />
+    );
+  }
 
   return (
     <div className="w-screen h-screen bg-mw-bg text-zinc-100 font-sans overflow-hidden flex flex-col relative">
@@ -456,14 +593,21 @@ const App = () => {
                  <span className="text-[10px] text-gray-500">Unsaved Changes</span>
              </div>
              <div className="flex items-center gap-1 ml-4 bg-black/20 rounded-lg p-1 border border-white/5 hidden md:flex">
-                <button onClick={handleUndo} disabled={historyIndex === 0} className="p-1 hover:bg-white/10 rounded disabled:opacity-30"><Icons.Undo size={14} /></button>
-                <button onClick={handleRedo} disabled={historyIndex === history.length - 1} className="p-1 hover:bg-white/10 rounded disabled:opacity-30"><Icons.Redo size={14} /></button>
+                <button onClick={undo} disabled={!canUndo} className="p-1 hover:bg-white/10 rounded disabled:opacity-30"><Icons.Undo size={14} /></button>
+                <button onClick={redo} disabled={!canRedo} className="p-1 hover:bg-white/10 rounded disabled:opacity-30"><Icons.Redo size={14} /></button>
              </div>
          </div>
          <div className="flex items-center gap-2 pointer-events-auto">
+              <button
+                onClick={() => selectedLayerId && handleEnterEditMode(selectedLayerId)}
+                disabled={!selectedLayerId}
+                className="bg-mw-cyan/20 hover:bg-mw-cyan/30 border border-mw-cyan/50 px-3 py-1 rounded text-xs font-medium text-mw-cyan transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                ✏️ 編輯圖層
+              </button>
              <button className="bg-white/10 hover:bg-white/20 px-3 py-1 rounded text-xs hidden md:block">Share</button>
-             <button className="bg-mw-accent hover:bg-violet-600 px-3 py-1 rounded text-xs">Export</button>
-         </div>
+             <button onClick={handleExport} className="bg-mw-accent hover:bg-violet-600 px-3 py-1 rounded text-xs">Export</button>
+          </div>
       </header>
 
       <main className="flex-1 relative z-0">
@@ -481,12 +625,19 @@ const App = () => {
         className={activeMobilePanel === 'layers' ? 'fixed inset-0 z-50 w-full h-full max-h-full rounded-none' : 'hidden md:flex absolute top-20 left-6 w-64 max-h-[70vh]'}
       />
       
-      <NodeSystemPanel 
-        layer={selectedLayer} 
-        onUpdateLayer={handleUpdateLayer} 
-        selectedLayerId={selectedLayerId} 
-        isMobile={activeMobilePanel === 'nodes'}
-      />
+      {selectedLayer?.type === LayerType.PROCEDURAL ? (
+        <PatternGeneratorPanel
+          layer={selectedLayer}
+          onUpdateLayer={handleUpdateLayer}
+        />
+      ) : (
+        <NodeSystemPanel
+          layer={selectedLayer}
+          onUpdateLayer={handleUpdateLayer}
+          selectedLayerId={selectedLayerId}
+          isMobile={activeMobilePanel === 'nodes'}
+        />
+      )}
       
       <ChatPanel 
         messages={messages} 
