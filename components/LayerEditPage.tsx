@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Layer, LayerType, Modifier, ModifierType } from '../types';
 import { Icons } from './Icons';
 
@@ -340,7 +340,7 @@ const ResizableDivider: React.FC<{ onResize: (delta: number) => void }> = ({ onR
     setIsDragging(true);
   };
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (!isDragging) return;
 
     const handleMouseMove = (e: MouseEvent) => {
@@ -375,12 +375,100 @@ interface LayerEditPageProps {
 }
 
 export const LayerEditPage: React.FC<LayerEditPageProps> = ({ layer, onUpdateLayer, onExit }) => {
-  const [selectedCategory, setSelectedCategory] = useState<string>('Core');
-  const [leftWidth, setLeftWidth] = useState(256);
+  // Component state
+  const [leftWidth, setLeftWidth] = useState(280);
   const [rightWidth, setRightWidth] = useState(380);
+  const [selectedCategory, setSelectedCategory] = useState('Core');
+  const [expandedMods, setExpandedMods] = useState(new Set<string>());
   const [soloModId, setSoloModId] = useState<string | null>(null);
-  const [expandedMods, setExpandedMods] = useState<Set<string>>(new Set());
   const [imageError, setImageError] = useState(false);
+
+  // Zoom and Pan state
+  const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [isPanning, setIsPanning] = useState(false);
+  const [panStart, setPanStart] = useState({ x: 0, y: 0 });
+  const [isSpacePressed, setIsSpacePressed] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // Zoom limits
+  const MIN_ZOOM = 0.1;
+  const MAX_ZOOM = 5.0;
+
+  // Handle mouse wheel zoom
+  const handleWheel = (e: React.WheelEvent) => {
+    if (e.ctrlKey || e.metaKey) {
+      e.preventDefault();
+      const delta = -e.deltaY * 0.0001; // 增加靈敏度調整
+      setZoom(prev => Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, prev + delta)));
+    }
+  };
+
+  // Handle pan with Space key
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.code === 'Space' && !e.repeat) {
+        if (!(e.target instanceof HTMLInputElement) && !(e.target instanceof HTMLTextAreaElement)) {
+           e.preventDefault();
+           setIsSpacePressed(true);
+           if (containerRef.current) {
+             containerRef.current.style.cursor = 'grab';
+           }
+        }
+      }
+    };
+
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.code === 'Space') {
+        setIsSpacePressed(false);
+        if (containerRef.current) {
+          containerRef.current.style.cursor = 'default';
+        }
+        setIsPanning(false);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+    };
+  }, []);
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if (e.button === 1 || (e.button === 0 && isSpacePressed)) {
+      e.preventDefault();
+      setIsPanning(true);
+      setPanStart({ x: e.clientX - pan.x, y: e.clientY - pan.y });
+      if (containerRef.current) {
+        containerRef.current.style.cursor = 'grabbing';
+      }
+    }
+  };
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (isPanning) {
+      setPan({
+        x: e.clientX - panStart.x,
+        y: e.clientY - panStart.y
+      });
+    }
+  };
+
+  const handleMouseUp = () => {
+    if (isPanning) {
+      setIsPanning(false);
+      if (containerRef.current) {
+        containerRef.current.style.cursor = isSpacePressed ? 'grab' : 'default';
+      }
+    }
+  };
+
+  const handleResetView = () => {
+    setZoom(1);
+    setPan({ x: 0, y: 0 });
+  };
 
   const handleAddModifier = (type: ModifierType) => {
     const meta = MODIFIER_CATALOG.find(m => m.type === type);
@@ -545,54 +633,121 @@ export const LayerEditPage: React.FC<LayerEditPageProps> = ({ layer, onUpdateLay
         <ResizableDivider onResize={(delta) => setLeftWidth(prev => Math.max(200, Math.min(400, prev + delta)))} />
 
         {/* Center - Preview */}
-        <div className="flex-1 flex flex-col overflow-hidden">
-          <div className="flex-shrink-0 p-4 border-b border-white/10">
-            <h2 className="text-lg font-semibold">
-              預覽圖層
-              {soloModId && <span className="ml-2 text-xs text-mw-cyan">(Solo 模式)</span>}
-            </h2>
+        <div className="flex-1 flex flex-col overflow-hidden relative">
+          <div className="flex-shrink-0 p-4 border-b border-white/10 z-10 bg-[#0a0a0a]/80 backdrop-blur">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-semibold">預覽圖層</h2>
+              {soloModId && (
+                <div className="flex items-center gap-2 px-3 py-1 bg-mw-cyan/20 border border-mw-cyan/50 rounded-full">
+                  <Icons.Eye size={14} className="text-mw-cyan" />
+                  <span className="text-xs font-medium text-mw-cyan">
+                    Solo: {layer.modifiers.find(m => m.id === soloModId)?.name}
+                  </span>
+                  <button
+                    onClick={() => setSoloModId(null)}
+                    className="ml-1 hover:bg-mw-cyan/30 rounded-full p-0.5 transition-all"
+                    title="取消 Solo"
+                  >
+                    <Icons.X size={12} className="text-mw-cyan" />
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
           
-          <div className="flex-1 overflow-y-auto p-6 flex items-center justify-center bg-black/30">
+          <div 
+            ref={containerRef}
+            className="flex-1 overflow-hidden flex items-center justify-center bg-black/30 grid-bg cursor-default relative"
+            onWheel={handleWheel}
+            onMouseDown={handleMouseDown}
+            onMouseMove={handleMouseMove}
+            onMouseUp={handleMouseUp}
+            onMouseLeave={handleMouseUp}
+          >
+             {/* Zoom Controls */}
+            <div className="absolute bottom-6 left-6 flex flex-col gap-2 bg-black/80 backdrop-blur border border-white/10 rounded-lg p-2 z-50">
+              <button
+                onClick={() => setZoom(prev => Math.min(MAX_ZOOM, prev * 1.2))}
+                className="p-2 hover:bg-white/10 rounded transition-all"
+                title="放大 (Ctrl + 滾輪)"
+              >
+                <Icons.Plus size={16} />
+              </button>
+              <div className="text-[10px] text-center text-gray-400 py-1">
+                {Math.round(zoom * 100)}%
+              </div>
+              <button
+                onClick={() => setZoom(prev => Math.max(MIN_ZOOM, prev / 1.2))}
+                className="p-2 hover:bg-white/10 rounded transition-all"
+                title="縮小 (Ctrl + 滾輪)"
+              >
+                <Icons.Min size={16} />
+              </button>
+              <div className="w-full h-px bg-white/10 my-1" />
+              <button
+                onClick={handleResetView}
+                className="p-2 hover:bg-white/10 rounded transition-all"
+                title="重置視圖"
+              >
+                <Icons.RotateCcw size={16} />
+              </button>
+            </div>
+
             <div
-              className="relative transition-all duration-300"
+              className="relative transition-all duration-100 ease-out"
               style={{
-                width: 350,
-                height: 350,
-                maxWidth: '100%',
-                ...layerStyle
+                width: layer.width || 350,
+                height: layer.height || 350,
+                transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+                transformOrigin: 'center center',
               }}
             >
-              {imageError ? (
-                <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-mw-accent/20 to-mw-cyan/20 rounded-lg border-2 border-mw-accent/30">
-                  <div className="text-center">
-                    <Icons.Image size={64} className="mx-auto mb-3 text-mw-accent/50" />
-                    <p className="text-sm text-gray-400">圖片載入失敗</p>
-                    <button
-                      onClick={() => setImageError(false)}
-                      className="mt-3 px-3 py-1 bg-mw-accent/20 hover:bg-mw-accent/30 border border-mw-accent/50 rounded text-xs transition-all"
-                    >
-                      重新載入
-                    </button>
+              <div
+                className="w-full h-full relative overflow-hidden"
+                style={{
+                  ...layer.style,
+                  ...layerStyle
+                }}
+              >
+                {imageError ? (
+                  <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-mw-accent/20 to-mw-cyan/20 rounded-lg border-2 border-mw-accent/30">
+                    <div className="text-center">
+                      <Icons.Image size={64} className="mx-auto mb-3 text-mw-accent/50" />
+                      <p className="text-sm text-gray-400">無內容或載入失敗</p>
+                      {layer.content && (
+                        <button
+                          onClick={() => setImageError(false)}
+                          className="mt-3 px-3 py-1 bg-mw-accent/20 hover:bg-mw-accent/30 border border-mw-accent/50 rounded text-xs transition-all"
+                        >
+                          重新載入
+                        </button>
+                      )}
+                    </div>
                   </div>
-                </div>
-              ) : (
-                <img
-                  src={layer.content}
-                  alt={layer.name}
-                  className="w-full h-full object-cover rounded-lg shadow-2xl"
-                  onError={() => setImageError(true)}
-                  crossOrigin="anonymous"
-                />
-              )}
+                ) : layer.type === LayerType.IMAGE && layer.content ? (
+                  <img
+                    src={layer.content}
+                    alt={layer.name}
+                    className="w-full h-full object-cover rounded-lg shadow-2xl"
+                    onError={() => setImageError(true)}
+                    crossOrigin="anonymous"
+                  />
+                ) : layer.type === LayerType.TEXT ? (
+                  <div className="w-full h-full flex items-center justify-center text-center px-4">
+                    <span className="text-2xl font-bold">{layer.content || layer.name}</span>
+                  </div>
+                ) : (
+                  <div className="w-full h-full rounded-lg" />
+                )}
 
-              {layer.modifiers.length > 0 && !imageError && (
-                <div className="absolute bottom-3 right-3 bg-black/90 backdrop-blur px-3 py-1.5 rounded-full border border-mw-accent/50">
-                  <span className="text-xs text-mw-accent font-bold">
-                    {soloModId ? '1 Solo' : `${layer.modifiers.filter(m => m.active).length} / ${layer.modifiers.length}`}
-                  </span>
-                </div>
-              )}
+                {layer.modifiers.length > 0 && (
+                  <div className="absolute bottom-3 right-3 bg-black/90 backdrop-blur px-3 py-1.5 rounded-full border border-mw-accent/50">
+                    <span className="text-xs text-mw-accent font-bold">
+                      {soloModId ? '1 Solo' : `${layer.modifiers.filter(m => m.active).length} / ${layer.modifiers.length}`}
+                    </span>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -631,10 +786,12 @@ export const LayerEditPage: React.FC<LayerEditPageProps> = ({ layer, onUpdateLay
                     <div
                       key={mod.id}
                       className={`rounded-lg border transition-all ${
-                        mod.active && !soloModId
-                          ? 'bg-mw-accent/10 border-mw-accent/30' 
-                          : isSolo
-                          ? 'bg-mw-cyan/10 border-mw-cyan/30'
+                        isSolo
+                          ? 'bg-mw-cyan/10 border-mw-cyan/30 ring-2 ring-mw-cyan/20'
+                          : soloModId
+                          ? 'bg-black/30 border-white/5 opacity-40'
+                          : mod.active
+                          ? 'bg-mw-accent/10 border-mw-accent/30'
                           : 'bg-black/30 border-white/5 opacity-60'
                       }`}
                     >
