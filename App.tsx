@@ -4,6 +4,7 @@ import { ChatPanel } from "./components/ChatPanel";
 import { NodeSystemPanel } from "./components/NodeSystemPanel";
 import { Canvas } from "./components/Canvas";
 import { CommandPalette } from "./components/CommandPalette";
+import { ModifierTestPage } from "./components/ModifierTestPage";
 import { Icons } from "./components/Icons";
 import {
   Layer,
@@ -162,7 +163,7 @@ const App = () => {
   );
 
   const [messages, setMessages] = useState<ChatMessage[]>(INITIAL_MESSAGES);
-  const [isChatOpen, setIsChatOpen] = useState(true);
+  const [isChatOpen, setIsChatOpen] = useState(false); // AI chat minimized by default
   const [isThinking, setIsThinking] = useState(false);
   const [uploadedImage, setUploadedImage] = useState<string | null>(null);
   const [isCmdKOpen, setIsCmdKOpen] = useState(false);
@@ -374,6 +375,27 @@ const App = () => {
   const selectedLayer = layers.find((l) => l.id === selectedLayerId) || null;
 
   const [activeMobilePanel, setActiveMobilePanel] = useState<'layers' | 'nodes' | 'chat' | null>(null);
+  const [showTestPage, setShowTestPage] = useState(false);
+
+  // If test page is active, show it
+  if (showTestPage) {
+    return (
+      <div className="w-screen h-screen bg-mw-bg text-zinc-100 font-sans overflow-hidden flex flex-col relative">
+        <header className="absolute top-0 left-0 w-full h-12 flex items-center justify-between px-6 z-50 pointer-events-none">
+          <div className="pointer-events-auto">
+            <button
+              onClick={() => setShowTestPage(false)}
+              className="flex items-center gap-2 px-4 py-2 bg-mw-panel/80 backdrop-blur border border-white/10 rounded-lg hover:bg-mw-panel transition-all"
+            >
+              <span className="text-lg">←</span>
+              <span className="text-sm font-medium">返回主應用</span>
+            </button>
+          </div>
+        </header>
+        <ModifierTestPage />
+      </div>
+    );
+  }
 
   return (
     <div className="w-screen h-screen bg-mw-bg text-zinc-100 font-sans overflow-hidden flex flex-col relative">
@@ -391,9 +413,15 @@ const App = () => {
              </div>
          </div>
          <div className="flex items-center gap-2 pointer-events-auto">
+              <button 
+                onClick={() => setShowTestPage(true)}
+                className="bg-mw-cyan/20 hover:bg-mw-cyan/30 border border-mw-cyan/50 px-3 py-1 rounded text-xs font-medium text-mw-cyan transition-all"
+              >
+                🧪 測試頁面
+              </button>
              <button className="bg-white/10 hover:bg-white/20 px-3 py-1 rounded text-xs hidden md:block">Share</button>
              <button className="bg-mw-accent hover:bg-violet-600 px-3 py-1 rounded text-xs">Export</button>
-         </div>
+          </div>
       </header>
 
       <main className="flex-1 relative z-0">
@@ -405,7 +433,7 @@ const App = () => {
         layers={layers} 
         selectedLayerId={selectedLayerId} 
         onSelectLayer={setSelectedLayerId} 
-        className={activeMobilePanel === 'layers' ? 'fixed inset-0 z-50 w-full h-full max-h-full rounded-none' : 'hidden md:flex absolute top-20 left-6 w-64 max-h-[70vh]'}
+        className={activeMobilePanel === 'layers' ? 'fixed inset-0 z-50 w-full h-full max-h-full rounded-none' : 'hidden md:flex absolute top-20 left-6 w-64 max-h-[70vh] z-40'}
       />
       
       <NodeSystemPanel 

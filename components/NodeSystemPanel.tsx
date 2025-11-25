@@ -144,6 +144,8 @@ export const NodeSystemPanel: React.FC<NodeSystemPanelProps> = ({ layer, onUpdat
     const newModifiers = layer.modifiers.map(m => 
       m.id === modId ? { ...m, params: { ...m.params, [paramKey]: value }, lastUsed: Date.now() } : m
     );
+    console.log('📝 Updating modifier:', { modId, paramKey, value, layerId: layer.id });
+    console.log('📊 New modifiers:', newModifiers);
     onUpdateLayer(layer.id, { modifiers: newModifiers });
   }, [layer.id, layer.modifiers, onUpdateLayer]);
   
@@ -475,6 +477,7 @@ interface NodeWrapperProps {
 
 const NodeWrapper: React.FC<NodeWrapperProps> = ({ mod, index, onDragStart, onDrop, onDragOver, handleUpdateModifier, handleRemoveModifier, handleToggleActive, handleToggleFavorite, handleParamReset, setRef, onIOClick, isSelected }) => {
     const [isDragOver, setIsDragOver] = useState(false);
+    const [isDraggingNode, setIsDraggingNode] = useState(false);
 
     const handleContainerMouseDown = useCallback((e: React.MouseEvent) => {
         const target = e.target as HTMLElement;
@@ -487,9 +490,40 @@ const NodeWrapper: React.FC<NodeWrapperProps> = ({ mod, index, onDragStart, onDr
         if (ioType && modId && portId && dataType) {
             onIOClick(e, modId, ioType as 'in'|'out', portId, dataType);
             e.stopPropagation(); // Prevent drag start when wiring
+            e.preventDefault();
         }
-        // Otherwise, let the native drag handle it via draggable="true"
     }, [onIOClick]);
+
+    // Drag handle specific handlers
+    const handleDragHandleMouseDown = useCallback((e: React.MouseEvent) => {
+        // Only allow dragging from the drag handle (three lines icon)
+        const target = e.target as HTMLElement;
+        const isDragHandle = target.closest('.drag-handle-icon');
+        
+        if (!isDragHandle) {
+            // Clicked on button or other interactive elements in header
+            e.stopPropagation();
+        }
+    }, []);
+
+    const handleNodeDragStart = useCallback((e: React.DragEvent) => {
+        // Check if drag started from the drag handle area
+        const target = e.target as HTMLElement;
+        const isDragHandleArea = target.closest('.drag-handle-icon');
+        
+        if (!isDragHandleArea) {
+            // Prevent dragging if not from drag handle
+            e.preventDefault();
+            return;
+        }
+        
+        setIsDraggingNode(true);
+        onDragStart(e, index);
+    }, [onDragStart, index]);
+
+    const handleNodeDragEnd = useCallback(() => {
+        setIsDraggingNode(false);
+    }, []);
 
     const handleDragOver = useCallback((e: React.DragEvent) => {
         setIsDragOver(true);
@@ -520,16 +554,21 @@ const NodeWrapper: React.FC<NodeWrapperProps> = ({ mod, index, onDragStart, onDr
       onToggleFavorite: () => handleToggleFavorite(mod.id),
       onParamReset: (paramKey: string, defaultValue: any) => handleParamReset(mod.id, paramKey, defaultValue),
       isSelected: isSelected,
-      // Fix: Use draggable attribute and onDragStart for HTML5 DnD
+      isDragging: isDraggingNode,
+      // Container props - NO draggable here
       containerProps: {
         onMouseDown: handleContainerMouseDown,
         onDrop: handleDrop,
         onDragOver: handleDragOver,
         onDragLeave: handleDragLeave,
-        draggable: true,
-        onDragStart: (e: React.DragEvent) => onDragStart(e, index)
+        onDragEnd: handleNodeDragEnd
       },
-      dragHandleProps: {}
+      // Drag handle props - draggable ONLY on the handle
+      dragHandleProps: {
+        draggable: true,
+        onDragStart: handleNodeDragStart,
+        onMouseDown: handleDragHandleMouseDown
+      }
     };
 
     return (
