@@ -1,5 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Layer, LayerType, ModifierType } from '../types';
+import { ContextMenu, useContextMenu } from './ContextMenu';
+import { Icons } from './Icons';
+import { useLongPress, hapticFeedback, useThrottle } from '../hooks/useMobileOptimizations';
 
 interface CanvasProps {
   layers: Layer[];
@@ -263,6 +266,116 @@ export const Canvas: React.FC<CanvasProps> = ({ layers, selectedLayerId, selecte
   const [initialRotation, setInitialRotation] = useState<number>(0);
   const [isTouchDevice] = useState(() => window.matchMedia("(pointer: coarse)").matches);
 
+  // Context menu state
+  const contextMenu = useContextMenu();
+  const [contextMenuLayerId, setContextMenuLayerId] = useState<string | null>(null);
+
+  // Throttled transform move for better performance
+  const throttledTransformMove = useThrottle((e: React.MouseEvent) => {
+    if (!transformMode || !dragStart || !initialLayer || !onUpdateLayer) return;
+
+    const dx = e.clientX - dragStart.x;
+    const dy = e.clientY - dragStart.y;
+
+    if (transformMode === 'move') {
+      selectedLayerIds.forEach(layerId => {
+        const layer = layers.find(l => l.id === layerId);
+        if (layer && !layer.locked) {
+          const offsetX = layer.id === initialLayer.id ? 0 : layer.x - initialLayer.x;
+          const offsetY = layer.id === initialLayer.id ? 0 : layer.y - initialLayer.y;
+          onUpdateLayer(layerId, {
+            x: initialLayer.x + dx + offsetX,
+            y: initialLayer.y + dy + offsetY
+          });
+        }
+      });
+    } else if (transformMode?.startsWith('resize-')) {
+      const corner = transformMode.split('-')[1] as 'nw' | 'ne' | 'sw' | 'se';
+      let newWidth = initialLayer.width;
+      let newHeight = initialLayer.height;
+      let newX = initialLayer.x;
+      let newY = initialLayer.y;
+
+      if (corner === 'se') {
+        newWidth = Math.max(50, initialLayer.width + dx);
+        newHeight = Math.max(50, initialLayer.height + dy);
+      } else if (corner === 'nw') {
+        newWidth = Math.max(50, initialLayer.width - dx);
+        newHeight = Math.max(50, initialLayer.height - dy);
+        newX = initialLayer.x + dx;
+        newY = initialLayer.y + dy;
+      } else if (corner === 'ne') {
+        newWidth = Math.max(50, initialLayer.width + dx);
+        newHeight = Math.max(50, initialLayer.height - dy);
+        newY = initialLayer.y + dy;
+      } else if (corner === 'sw') {
+        newWidth = Math.max(50, initialLayer.width - dx);
+        newHeight = Math.max(50, initialLayer.height + dy);
+        newX = initialLayer.x + dx;
+      }
+
+      onUpdateLayer(initialLayer.id, { width: newWidth, height: newHeight, x: newX, y: newY });
+    } else if (transformMode === 'rotate') {
+      const centerX = initialLayer.x + initialLayer.width / 2;
+      const centerY = initialLayer.y + initialLayer.height / 2;
+
+      const angle1 = Math.atan2(dragStart.y - centerY, dragStart.x - centerX);
+      const angle2 = Math.atan2(e.clientY - centerY, e.clientX - centerX);
+      const deltaAngle = (angle2 - angle1) * (180 / Math.PI);
+
+      onUpdateLayer(initialLayer.id, { rotation: (initialLayer.rotation + deltaAngle) % 360 });
+    }
+  }, 16); // ~60fps
+
+  // Context menu handlers
+  const handleLayerContextMenu = (layerId: string, x: number, y: number) => {
+    const layer = layers.find(l => l.id === layerId);
+    if (!layer) return;
+
+    setContextMenuLayerId(layerId);
+
+    const menuItems = [
+      {
+        label: layer.visible === false ? 'Show Layer' : 'Hide Layer',
+        icon: layer.visible === false ? Icons.Eye : Icons.EyeOff,
+        action: () => {
+          if (onUpdateLayer) {
+            onUpdateLayer(layerId, { visible: layer.visible === false ? true : false });
+          }
+        },
+      },
+      {
+        label: layer.locked ? 'Unlock Layer' : 'Lock Layer',
+        icon: layer.locked ? Icons.Unlock : Icons.Lock,
+        action: () => {
+          if (onUpdateLayer) {
+            onUpdateLayer(layerId, { locked: !layer.locked });
+          }
+        },
+      },
+      {
+        label: 'Duplicate',
+        icon: Icons.Copy,
+        action: () => {
+          // TODO: Implement duplicate
+          hapticFeedback.success();
+        },
+      },
+      {
+        label: 'Delete',
+        icon: Icons.Trash2,
+        variant: 'danger' as const,
+        action: () => {
+          // TODO: Implement delete
+          hapticFeedback.warning();
+        },
+        disabled: layer.locked,
+      },
+    ];
+
+    contextMenu.open(x, y, menuItems);
+  };
+
   // Helper functions for touch gestures
   const getTouchDistance = (touches: TouchList): number => {
     const dx = touches[0].clientX - touches[1].clientX;
@@ -283,10 +396,25 @@ export const Canvas: React.FC<CanvasProps> = ({ layers, selectedLayerId, selecte
   };
 
   // Touch event handlers
+  const [longPressTimer, setLongPressTimer] = useState<NodeJS.Timeout | null>(null);
+  const [longPressTriggered, setLongPressTriggered] = useState(false);
+
   const handleTouchStart = (e: React.TouchEvent, layerId?: string) => {
     const touches = e.touches;
 
     if (touches.length === 1) {
+      setLongPressTriggered(false);
+
+      // Set up long press detection (500ms)
+      if (layerId) {
+        const timer = setTimeout(() => {
+          setLongPressTriggered(true);
+          const touch = touches[0];
+          handleLayerContextMenu(layerId, touch.clientX, touch.clientY);
+        }, 500);
+        setLongPressTimer(timer);
+      }
+
       // Single finger: select or drag layer
       setTouchMode('drag');
       setTouchStart({ x: touches[0].clientX, y: touches[0].clientY });
@@ -295,9 +423,16 @@ export const Canvas: React.FC<CanvasProps> = ({ layers, selectedLayerId, selecte
         const layer = layers.find(l => l.id === layerId);
         if (layer && !layer.locked) {
           setInitialLayer({ ...layer });
+          hapticFeedback.light(); // Touch feedback
         }
       }
     } else if (touches.length === 2 && layerId && selectedLayerIds.includes(layerId)) {
+      // Cancel long press if second finger added
+      if (longPressTimer) {
+        clearTimeout(longPressTimer);
+        setLongPressTimer(null);
+      }
+
       // Two fingers on selected layer: pinch/rotate
       e.preventDefault();
       const layer = layers.find(l => l.id === layerId);
@@ -308,17 +443,33 @@ export const Canvas: React.FC<CanvasProps> = ({ layers, selectedLayerId, selecte
         setInitialLayer({ ...layer });
         setInitialScale(1);
         setInitialRotation(layer.rotation);
+        hapticFeedback.medium(); // Pinch start feedback
       }
     }
   };
 
   const handleTouchMove = (e: React.TouchEvent) => {
+    // Cancel long press if moved significantly
+    if (longPressTimer && touchStart) {
+      const touches = e.touches;
+      if (touches.length > 0) {
+        const dx = touches[0].clientX - touchStart.x;
+        const dy = touches[0].clientY - touchStart.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+
+        if (distance > 10) { // 10px threshold
+          clearTimeout(longPressTimer);
+          setLongPressTimer(null);
+        }
+      }
+    }
+
     if (!touchMode || touchMode === 'none') return;
 
     const touches = e.touches;
 
-    if (touchMode === 'drag' && touches.length === 1 && touchStart && initialLayer && onUpdateLayer) {
-      // Single finger drag
+    if (touchMode === 'drag' && touches.length === 1 && touchStart && initialLayer && onUpdateLayer && !longPressTriggered) {
+      // Single finger drag (don't drag if long press triggered)
       e.preventDefault();
       const dx = touches[0].clientX - touchStart.x;
       const dy = touches[0].clientY - touchStart.y;
@@ -359,11 +510,18 @@ export const Canvas: React.FC<CanvasProps> = ({ layers, selectedLayerId, selecte
   };
 
   const handleTouchEnd = (e: React.TouchEvent) => {
+    // Clear long press timer
+    if (longPressTimer) {
+      clearTimeout(longPressTimer);
+      setLongPressTimer(null);
+    }
+
     setTouchMode('none');
     setTouchStart(null);
     setInitialLayer(null);
     setInitialPinchDistance(0);
     setInitialPinchAngle(0);
+    setLongPressTriggered(false);
   };
 
   const handleTransformStart = (e: React.MouseEvent, layerId: string, mode: TransformMode) => {
@@ -376,67 +534,8 @@ export const Canvas: React.FC<CanvasProps> = ({ layers, selectedLayerId, selecte
     setInitialLayer({ ...layer });
   };
 
-  const handleTransformMove = (e: React.MouseEvent) => {
-    if (!transformMode || !dragStart || !initialLayer || !onUpdateLayer) return;
-
-    const dx = e.clientX - dragStart.x;
-    const dy = e.clientY - dragStart.y;
-
-    if (transformMode === 'move') {
-      // Move layer(s)
-      const updates = { x: initialLayer.x + dx, y: initialLayer.y + dy };
-
-      // Apply to all selected layers
-      selectedLayerIds.forEach(layerId => {
-        const layer = layers.find(l => l.id === layerId);
-        if (layer && !layer.locked) {
-          const offsetX = layer.id === initialLayer.id ? 0 : layer.x - initialLayer.x;
-          const offsetY = layer.id === initialLayer.id ? 0 : layer.y - initialLayer.y;
-          onUpdateLayer(layerId, {
-            x: initialLayer.x + dx + offsetX,
-            y: initialLayer.y + dy + offsetY
-          });
-        }
-      });
-    } else if (transformMode?.startsWith('resize-')) {
-      // Resize layer
-      const corner = transformMode.split('-')[1] as 'nw' | 'ne' | 'sw' | 'se';
-      let newWidth = initialLayer.width;
-      let newHeight = initialLayer.height;
-      let newX = initialLayer.x;
-      let newY = initialLayer.y;
-
-      if (corner === 'se') {
-        newWidth = Math.max(50, initialLayer.width + dx);
-        newHeight = Math.max(50, initialLayer.height + dy);
-      } else if (corner === 'nw') {
-        newWidth = Math.max(50, initialLayer.width - dx);
-        newHeight = Math.max(50, initialLayer.height - dy);
-        newX = initialLayer.x + dx;
-        newY = initialLayer.y + dy;
-      } else if (corner === 'ne') {
-        newWidth = Math.max(50, initialLayer.width + dx);
-        newHeight = Math.max(50, initialLayer.height - dy);
-        newY = initialLayer.y + dy;
-      } else if (corner === 'sw') {
-        newWidth = Math.max(50, initialLayer.width - dx);
-        newHeight = Math.max(50, initialLayer.height + dy);
-        newX = initialLayer.x + dx;
-      }
-
-      onUpdateLayer(initialLayer.id, { width: newWidth, height: newHeight, x: newX, y: newY });
-    } else if (transformMode === 'rotate') {
-      // Rotate layer
-      const centerX = initialLayer.x + initialLayer.width / 2;
-      const centerY = initialLayer.y + initialLayer.height / 2;
-
-      const angle1 = Math.atan2(dragStart.y - centerY, dragStart.x - centerX);
-      const angle2 = Math.atan2(e.clientY - centerY, e.clientX - centerX);
-      const deltaAngle = (angle2 - angle1) * (180 / Math.PI);
-
-      onUpdateLayer(initialLayer.id, { rotation: (initialLayer.rotation + deltaAngle) % 360 });
-    }
-  };
+  // Use the throttled version for better performance
+  const handleTransformMove = throttledTransformMove;
 
   const handleTransformEnd = () => {
     setTransformMode(null);
@@ -627,6 +726,14 @@ export const Canvas: React.FC<CanvasProps> = ({ layers, selectedLayerId, selecte
           </div>
         )
       })}
+
+      {/* Context Menu */}
+      <ContextMenu
+        isOpen={contextMenu.isOpen}
+        position={contextMenu.position}
+        items={contextMenu.items}
+        onClose={contextMenu.close}
+      />
     </div>
   );
 };
