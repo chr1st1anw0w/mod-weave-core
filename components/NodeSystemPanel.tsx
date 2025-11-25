@@ -113,7 +113,7 @@ const MODIFIER_CATALOG_RAW = [
 
 const MODIFIER_CATEGORIES = Array.from(new Set(MODIFIER_CATALOG_RAW.map(m => m.cat)));
 
-export const NodeSystemPanel: React.FC<NodeSystemPanelProps> = ({ layer, onUpdateLayer, selectedLayerId, isMobile }) => {
+export const NodeSystemPanel: React.FC<NodeSystemPanelProps> = React.memo(({ layer, onUpdateLayer, selectedLayerId, isMobile }) => {
   const [showAddMenu, setShowAddMenu] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [isPreviewOpen, setIsPreviewOpen] = useState(true);
@@ -457,7 +457,7 @@ export const NodeSystemPanel: React.FC<NodeSystemPanelProps> = ({ layer, onUpdat
         </div>
       </div>
   );
-};
+});
 
 interface NodeWrapperProps {
   mod: Modifier;
