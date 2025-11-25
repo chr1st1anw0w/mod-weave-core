@@ -368,7 +368,13 @@ const ResizableDivider: React.FC<{ onResize: (delta: number) => void }> = ({ onR
   );
 };
 
-export const ModifierTestPage: React.FC = () => {
+interface LayerEditPageProps {
+  layer: Layer;
+  onUpdateLayer: (layerId: string, updates: Partial<Layer>) => void;
+  onExit: () => void;
+}
+
+export const LayerEditPage: React.FC<LayerEditPageProps> = ({ layer, onUpdateLayer, onExit }) => {
   const [selectedCategory, setSelectedCategory] = useState<string>('Core');
   const [leftWidth, setLeftWidth] = useState(256);
   const [rightWidth, setRightWidth] = useState(380);
@@ -376,28 +382,14 @@ export const ModifierTestPage: React.FC = () => {
   const [expandedMods, setExpandedMods] = useState<Set<string>>(new Set());
   const [imageError, setImageError] = useState(false);
 
-  const [testLayer, setTestLayer] = useState<Layer>({
-    id: 'test-layer',
-    name: 'Test Layer',
-    type: LayerType.IMAGE,
-    x: 0,
-    y: 0,
-    width: 400,
-    height: 400,
-    rotation: 0,
-    opacity: 1,
-    content: 'https://images.unsplash.com/photo-1579546929518-9e396f3cc809?w=400&h=400&fit=crop',
-    modifiers: [],
-  });
-
   const handleAddModifier = (type: ModifierType) => {
     const meta = MODIFIER_CATALOG.find(m => m.type === type);
     const defaultParams: Record<string, any> = {};
-    
+
     meta?.params?.forEach(p => {
       defaultParams[p.key] = p.def;
     });
-    
+
     const newModifier: Modifier = {
       id: `mod-${Date.now()}`,
       type,
@@ -405,30 +397,27 @@ export const ModifierTestPage: React.FC = () => {
       active: true,
       params: defaultParams,
     };
-    
-    setTestLayer(prev => ({
-      ...prev,
-      modifiers: [...prev.modifiers, newModifier]
-    }));
-    
+
+    onUpdateLayer(layer.id, {
+      modifiers: [...layer.modifiers, newModifier]
+    });
+
     // Auto-expand the new modifier
     setExpandedMods(prev => new Set(prev).add(newModifier.id));
   };
 
   const handleToggleModifier = (modId: string) => {
-    setTestLayer(prev => ({
-      ...prev,
-      modifiers: prev.modifiers.map(m => 
+    onUpdateLayer(layer.id, {
+      modifiers: layer.modifiers.map(m =>
         m.id === modId ? { ...m, active: !m.active } : m
       )
-    }));
+    });
   };
 
   const handleRemoveModifier = (modId: string) => {
-    setTestLayer(prev => ({
-      ...prev,
-      modifiers: prev.modifiers.filter(m => m.id !== modId)
-    }));
+    onUpdateLayer(layer.id, {
+      modifiers: layer.modifiers.filter(m => m.id !== modId)
+    });
     setExpandedMods(prev => {
       const next = new Set(prev);
       next.delete(modId);
@@ -454,34 +443,46 @@ export const ModifierTestPage: React.FC = () => {
   };
 
   const handleUpdateParam = (modId: string, paramKey: string, value: any) => {
-    setTestLayer(prev => ({
-      ...prev,
-      modifiers: prev.modifiers.map(m =>
+    onUpdateLayer(layer.id, {
+      modifiers: layer.modifiers.map(m =>
         m.id === modId ? { ...m, params: { ...m.params, [paramKey]: value } } : m
       )
-    }));
+    });
   };
 
   const handleClearAll = () => {
-    setTestLayer(prev => ({
-      ...prev,
+    onUpdateLayer(layer.id, {
       modifiers: []
-    }));
+    });
     setSoloModId(null);
     setExpandedMods(new Set());
   };
 
   const filteredModifiers = MODIFIER_CATALOG.filter(m => m.category === selectedCategory);
-  const layerStyle = getLayerStyle(testLayer.modifiers, soloModId || undefined);
+  const layerStyle = getLayerStyle(layer.modifiers, soloModId || undefined);
 
   return (
     <div className="h-screen bg-[#0a0a0a] text-white flex flex-col overflow-hidden">
       {/* Header */}
-      <div className="flex-shrink-0 p-4 border-b border-white/10">
-        <h1 className="text-2xl font-bold bg-gradient-to-r from-mw-accent to-mw-cyan bg-clip-text text-transparent">
-          修飾器測試頁面
-        </h1>
-        <p className="text-xs text-gray-500 mt-1">測試所有修飾器 • 可調整欄位寬度 • Solo 模式</p>
+      <div className="flex-shrink-0 p-4 border-b border-white/10 flex items-center justify-between">
+        <div className="flex items-center gap-4">
+          <button
+            onClick={onExit}
+            className="flex items-center gap-2 px-3 py-2 bg-mw-panel/80 backdrop-blur border border-white/10 rounded-lg hover:bg-mw-panel transition-all"
+          >
+            <span className="text-lg">←</span>
+            <span className="text-sm font-medium">返回</span>
+          </button>
+          <div>
+            <h1 className="text-xl font-bold bg-gradient-to-r from-mw-accent to-mw-cyan bg-clip-text text-transparent">
+              {layer.name}
+            </h1>
+            <p className="text-xs text-gray-500 mt-0.5">單一圖層編輯模式</p>
+          </div>
+        </div>
+        <button className="bg-mw-accent hover:bg-violet-600 px-4 py-2 rounded text-sm font-medium">
+          保存
+        </button>
       </div>
 
       {/* Three Column Layout with Resizable Dividers */}
@@ -511,7 +512,7 @@ export const ModifierTestPage: React.FC = () => {
           <div className="flex-1 overflow-y-auto p-3 space-y-1.5">
             {filteredModifiers.map((modifier) => {
               const Icon = modifier.icon;
-              const isApplied = testLayer.modifiers.some(m => m.type === modifier.type);
+              const isApplied = layer.modifiers.some(m => m.type === modifier.type);
               
               return (
                 <button
@@ -577,18 +578,18 @@ export const ModifierTestPage: React.FC = () => {
                 </div>
               ) : (
                 <img
-                  src={testLayer.content}
-                  alt="Test Layer"
+                  src={layer.content}
+                  alt={layer.name}
                   className="w-full h-full object-cover rounded-lg shadow-2xl"
                   onError={() => setImageError(true)}
                   crossOrigin="anonymous"
                 />
               )}
 
-              {testLayer.modifiers.length > 0 && !imageError && (
+              {layer.modifiers.length > 0 && !imageError && (
                 <div className="absolute bottom-3 right-3 bg-black/90 backdrop-blur px-3 py-1.5 rounded-full border border-mw-accent/50">
                   <span className="text-xs text-mw-accent font-bold">
-                    {soloModId ? '1 Solo' : `${testLayer.modifiers.filter(m => m.active).length} / ${testLayer.modifiers.length}`}
+                    {soloModId ? '1 Solo' : `${layer.modifiers.filter(m => m.active).length} / ${layer.modifiers.length}`}
                   </span>
                 </div>
               )}
@@ -612,7 +613,7 @@ export const ModifierTestPage: React.FC = () => {
           </div>
           
           <div className="flex-1 overflow-y-auto p-4">
-            {testLayer.modifiers.length === 0 ? (
+            {layer.modifiers.length === 0 ? (
               <div className="h-full flex flex-col items-center justify-center text-center text-gray-600">
                 <Icons.Box size={48} className="mb-3 opacity-20" />
                 <p className="text-sm font-medium">尚未添加修飾器</p>
@@ -620,7 +621,7 @@ export const ModifierTestPage: React.FC = () => {
               </div>
             ) : (
               <div className="space-y-2">
-                {testLayer.modifiers.map((mod, index) => {
+                {layer.modifiers.map((mod, index) => {
                   const meta = MODIFIER_CATALOG.find(m => m.type === mod.type);
                   const Icon = meta?.icon || Icons.Box;
                   const isExpanded = expandedMods.has(mod.id);

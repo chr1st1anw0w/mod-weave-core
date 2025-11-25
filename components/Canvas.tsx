@@ -5,6 +5,7 @@ interface CanvasProps {
   layers: Layer[];
   selectedLayerId: string | null;
   onSelectLayer: (id: string | null) => void;
+  onEnterEditMode?: (layerId: string) => void;
 }
 
 /**
@@ -63,7 +64,7 @@ const getDynamicLayerStyle = (layer: Layer): React.CSSProperties => {
 };
 
 
-export const Canvas: React.FC<CanvasProps> = ({ layers, selectedLayerId, onSelectLayer }) => {
+export const Canvas: React.FC<CanvasProps> = ({ layers, selectedLayerId, onSelectLayer, onEnterEditMode }) => {
   return (
     <div 
       className="w-full h-full relative overflow-hidden cursor-default grid-bg"
@@ -81,6 +82,12 @@ export const Canvas: React.FC<CanvasProps> = ({ layers, selectedLayerId, onSelec
             onClick={(e) => {
               e.stopPropagation();
               onSelectLayer(layer.id);
+            }}
+            onDoubleClick={(e) => {
+              e.stopPropagation();
+              if (onEnterEditMode) {
+                onEnterEditMode(layer.id);
+              }
             }}
             style={{
               transform: `translate(${layer.x}px, ${layer.y}px) rotate(${layer.rotation}deg)`,
