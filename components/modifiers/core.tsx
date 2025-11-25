@@ -18,12 +18,6 @@ export const OutlineNode = createNode("Outline", Icons.Circle, "text-cyan-400", 
   { label: "Color", key: "color", type: "color", def: "#00ffff", dataType: 'color' }
 ]);
 
-export const StretchNode = createNode("Stretch", Icons.Move, "text-orange-400", [
-  { label: "H. Stretch", key: "hStretch", type: "slider", min: -200, max: 200, unit: "%", def: 100, io: true, dataType: 'number' },
-  { label: "V. Stretch", key: "vStretch", type: "slider", min: -200, max: 200, unit: "%", def: 100, io: true, dataType: 'number' },
-  { label: "Intensity", key: "intensity", type: "slider", min: 0, max: 5, def: 1, io: true, dataType: 'number' }
-]);
-
 export const RepeaterNode = createNode("Repeater", Icons.Copy, "text-indigo-400", [
   { label: "Copies", key: "copies", type: "slider", min: 1, max: 50, def: 5, step: 1, io: true, dataType: 'number' },
   { label: "Rotation", key: "rotation", type: "slider", min: 0, max: 360, unit: "°", def: 0, dataType: 'number' },
@@ -41,11 +35,6 @@ export const SpringNode = createNode("Spring Physics", Icons.Activity, "text-gre
   { label: "Damping", key: "damping", type: "slider", min: 0, max: 1, def: 0.7, step: 0.05, io: true, dataType: 'number' }
 ]);
 
-export const WaveNode = createNode("Wave Warp", Icons.Waves, "text-sky-400", [
-  { label: "Freq", key: "freq", type: "slider", min: 0.1, max: 20, unit: "Hz", def: 2, dataType: 'number' },
-  { label: "Amp", key: "amp", type: "slider", min: 0, max: 200, unit: "px", def: 20, io: true, dataType: 'number' }
-]);
-
 export const ParallaxNode = createNode("Parallax", Icons.Layers, "text-purple-300", [
   { label: "Layers", key: "layers", type: "slider", min: 1, max: 10, def: 3, step: 1, io: true, dataType: 'number' },
   { label: "Speed", key: "speed", type: "slider", min: 0.1, max: 3, unit: "x", def: 1, step: 0.1, dataType: 'number' }
@@ -57,8 +46,3 @@ export const AIFillNode = (props: any) => (
      <Control label="Strength" modId={props.modId} dataType="number"><Slider value={props.params.strength ?? 0.75} min={0} max={1} step={0.01} onChange={(v: number) => props.onChange('strength', v)} /></Control>
   </NodeContainer>
 );
-
-export const PerturbNode = createNode("Perturb", Icons.Activity, "text-teal-400", [
-  { label: "Amplitude", key: "amplitude", type: "slider", min: 0, max: 100, def: 10, io: true, dataType: 'number' },
-  { label: "Frequency", key: "frequency", type: "slider", min: 0.1, max: 5, def: 1, dataType: 'number' }
-]);
