@@ -3,8 +3,11 @@ export enum LayerType {
   IMAGE = 'IMAGE',
   TEXT = 'TEXT',
   SHAPE = 'SHAPE',
-  GROUP = 'GROUP'
+  GROUP = 'GROUP',
+  PROCEDURAL = 'PROCEDURAL'
 }
+
+import { GeneratorState } from '../services/patternGenerator';
 
 export enum ModifierType {
   // --- 1-15 CORE MODIFIERS ---
@@ -100,6 +103,8 @@ export interface Layer {
   modifiers: Modifier[];
   connections?: Connection[]; // Node Wiring
   children?: Layer[]; 
+  parentId?: string;
+  patternState?: GeneratorState;
 }
 
 export interface User {
