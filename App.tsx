@@ -179,9 +179,12 @@ const App = () => {
   const [selectedLayerId, setSelectedLayerId] = useState<string | null>(
     "cyber-orb"
   );
-  const [viewMode, setViewMode] = useState<'main' | 'edit'>('main');
-  const [editingLayerId, setEditingLayerId] = useState<string | null>(null);
-  const [isChatOpen, setIsChatOpen] = useState(false); // AI chat minimized by default
+  const [selectedLayerIds, setSelectedLayerIds] = useState<string[]>(["cyber-orb"]);
+
+  const [messages, setMessages] = useState<ChatMessage[]>(INITIAL_MESSAGES);
+  const [isChatOpen, setIsChatOpen] = useState(true);
+  const [isThinking, setIsThinking] = useState(false);
+  const [uploadedImage, setUploadedImage] = useState<string | null>(null);
   const [isCmdKOpen, setIsCmdKOpen] = useState(false);
 
   const {
@@ -309,20 +312,90 @@ const App = () => {
     }
   };
 
-  const handleMoveLayer = useCallback((draggedId: string, targetId: string | null) => {
-    setLayers(prev => {
-        let layers = JSON.parse(JSON.stringify(prev)); // Deep copy for immutability
+  const handleToggleVisibility = (layerId: string) => {
+    setLayersWithHistory((prev) =>
+      prev.map((l) =>
+        l.id === layerId ? { ...l, visible: l.visible === false ? true : false } : l
+      )
+    );
+  };
 
-        let draggedLayer: Layer | null = null;
-        let sourceList: Layer[] | undefined = layers;
+  const handleToggleLock = (layerId: string) => {
+    setLayersWithHistory((prev) =>
+      prev.map((l) =>
+        l.id === layerId ? { ...l, locked: !l.locked } : l
+      )
+    );
+    // If locking the currently selected layer, deselect it
+    if (selectedLayerId === layerId) {
+      const layer = layers.find((l) => l.id === layerId);
+      if (layer && !layer.locked) {
+        setSelectedLayerId(null);
+        setSelectedLayerIds([]);
+      }
+    }
+  };
 
-        // Find and remove the dragged layer from its original position
-        const findAndRemove = (list: Layer[]): Layer[] => {
-            const index = list.findIndex(l => l.id === draggedId);
-            if (index !== -1) {
-                [draggedLayer] = list.splice(index, 1);
-                sourceList = list;
-                return list;
+  const handleSelectLayer = (layerId: string | null, multiSelect?: boolean, rangeSelect?: boolean) => {
+    if (layerId === null) {
+      // Deselect all
+      setSelectedLayerId(null);
+      setSelectedLayerIds([]);
+      return;
+    }
+
+    const layer = layers.find(l => l.id === layerId);
+    if (layer?.locked) {
+      // Cannot select locked layers
+      return;
+    }
+
+    if (multiSelect) {
+      // Cmd/Ctrl+Click: Toggle layer in selection
+      if (selectedLayerIds.includes(layerId)) {
+        const newIds = selectedLayerIds.filter(id => id !== layerId);
+        setSelectedLayerIds(newIds);
+        setSelectedLayerId(newIds.length > 0 ? newIds[newIds.length - 1] : null);
+      } else {
+        const newIds = [...selectedLayerIds, layerId];
+        setSelectedLayerIds(newIds);
+        setSelectedLayerId(layerId);
+      }
+    } else if (rangeSelect && selectedLayerId) {
+      // Shift+Click: Select range
+      const visibleLayers = layers.filter(l => l.visible !== false && !l.locked);
+      const currentIndex = visibleLayers.findIndex(l => l.id === selectedLayerId);
+      const targetIndex = visibleLayers.findIndex(l => l.id === layerId);
+
+      if (currentIndex !== -1 && targetIndex !== -1) {
+        const start = Math.min(currentIndex, targetIndex);
+        const end = Math.max(currentIndex, targetIndex);
+        const rangeIds = visibleLayers.slice(start, end + 1).map(l => l.id);
+        setSelectedLayerIds(rangeIds);
+        setSelectedLayerId(layerId);
+      }
+    } else {
+      // Normal click: Select single layer
+      setSelectedLayerId(layerId);
+      setSelectedLayerIds([layerId]);
+    }
+  };
+
+  const handleSendMessage = async (
+    text: string,
+    options: GeminiRequestOptions
+  ) => {
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: Date.now().toString(),
+        senderId: "user",
+        text,
+        timestamp: Date.now(),
+        attachment: options.uploadedImage
+          ? {
+              type: "image",
+              url: `data:image/png;base64,${options.uploadedImage}`,
             }
             for (const layer of list) {
                 if (layer.children) {
@@ -537,24 +610,19 @@ const App = () => {
           </div>
       </header>
 
-      <main id="canvas-to-export" className="flex-1 relative z-0">
-        <Canvas
-          layers={layers}
-          selectedLayerId={selectedLayerId}
-          onSelectLayer={setSelectedLayerId}
-          onEnterEditMode={handleEnterEditMode}
-        />
+      <main className="flex-1 relative z-0">
+        <Canvas layers={layers} selectedLayerId={selectedLayerId} selectedLayerIds={selectedLayerIds} onSelectLayer={handleSelectLayer} onUpdateLayer={handleUpdateLayer} />
       </main>
 
       {/* Desktop Panels / Mobile Modals */}
-      <LayerPanel 
-        layers={layers} 
-        selectedLayerId={selectedLayerId} 
-        onSelectLayer={setSelectedLayerId} 
-        onCreateGroup={handleCreateGroup}
-        onMoveLayer={handleMoveLayer}
-        onImportImage={handleImportImage}
-        className={activeMobilePanel === 'layers' ? 'fixed inset-0 z-50 w-full h-full max-h-full rounded-none' : 'hidden md:flex absolute top-20 left-6 w-64 max-h-[70vh] z-40'}
+      <LayerPanel
+        layers={layers}
+        selectedLayerId={selectedLayerId}
+        selectedLayerIds={selectedLayerIds}
+        onSelectLayer={handleSelectLayer}
+        onToggleVisibility={handleToggleVisibility}
+        onToggleLock={handleToggleLock}
+        className={activeMobilePanel === 'layers' ? 'fixed inset-0 z-50 w-full h-full max-h-full rounded-none' : 'hidden md:flex absolute top-20 left-6 w-64 max-h-[70vh]'}
       />
       
       {selectedLayer?.type === LayerType.PROCEDURAL ? (

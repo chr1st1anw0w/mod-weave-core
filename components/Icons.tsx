@@ -1,19 +1,19 @@
-import { 
-  Layers, 
-  MessageSquare, 
-  Command, 
-  Zap, 
-  Image as ImageIcon, 
-  Type, 
-  Box, 
-  MoreHorizontal, 
-  Plus, 
-  Search, 
-  X, 
-  Send, 
-  Sparkles, 
-  Waves, 
-  Activity, 
+import {
+  Layers,
+  MessageSquare,
+  Command,
+  Zap,
+  Image as ImageIcon,
+  Type,
+  Box,
+  MoreHorizontal,
+  Plus,
+  Search,
+  X,
+  Send,
+  Sparkles,
+  Waves,
+  Activity,
   MousePointer2,
   Settings,
   Share2,
@@ -52,6 +52,9 @@ import {
   Hexagon,
   Ghost,
   Eye,
+  EyeOff,
+  Lock,
+  Unlock,
   Scan,
   Wand2,
   Link2,
@@ -66,8 +69,8 @@ import {
   Star, // For favorites
   History, // For recently used
   RefreshCcw, // For reset button
-  ChevronUp, // For expand/collapse
-  ChevronDown // For expand/collapse
+  RotateCw, // For rotation handle
+  RotateCcw // For counter-clockwise rotation
 } from 'lucide-react';
 
 export const Icons = {
@@ -124,6 +127,9 @@ export const Icons = {
   Hexagon,
   Ghost,
   Eye,
+  EyeOff,
+  Lock,
+  Unlock,
   Scan,
   Wand: Wand2,
   Link2,
@@ -138,6 +144,7 @@ export const Icons = {
   Star,
   History,
   RefreshCcw,
-  ChevronUp,
-  ChevronDown
+  RotateCw,
+  RotateCcw,
+  Maximize2
 };
