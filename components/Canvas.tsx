@@ -4,6 +4,22 @@ import { ContextMenu, useContextMenu } from './ContextMenu';
 import { Icons } from './Icons';
 import { useLongPress, hapticFeedback, useThrottle } from '../hooks/useMobileOptimizations';
 
+// ============================================================================
+// WebGL 渲染集成（可选）
+// ============================================================================
+// 如需启用高级 Distort 效果（Wave、Liquify、Displacement Map），
+// 请取消以下导入的注释并按照 WEBGL_INTEGRATION_GUIDE.md 进行集成
+//
+// import { getWebGLRenderer } from '../services/webglRenderer';
+// import { getLiquifyRenderer } from '../services/liquifyRenderer';
+// import { WebGLLayer, layerNeedsWebGL } from './WebGLLayer';
+//
+// 使用方法：
+// 1. 在渲染图层时检查 layerNeedsWebGL(layer)
+// 2. 如果为 true，使用 <WebGLLayer> 组件而不是常规渲染
+// 3. 详细步骤请参考 WEBGL_INTEGRATION_GUIDE.md
+// ============================================================================
+
 interface CanvasProps {
   layers: Layer[];
   selectedLayerId: string | null;
@@ -170,17 +186,27 @@ const getDynamicLayerStyle = (layer: Layer): React.CSSProperties => {
                     filters.push('contrast(1.5)');
                     break;
 
-                // ===== DISTORTION (Limited CSS support) =====
+                // ===== DISTORTION (WebGL 实现可用) =====
+                // 以下效果需要 WebGL 渲染器才能实现真实效果
+                // CSS 无法实现像素级扭曲，建议使用 WebGLLayer 组件
+                // 参考：WEBGL_INTEGRATION_GUIDE.md
+
                 case ModifierType.WAVE:
-                    // CSS cannot do wave distortion, skip
+                    // ✅ WebGL shader 已实现
+                    // 支持：频率、振幅、相位、方向控制
+                    // 使用 getWebGLRenderer().renderWave() 渲染
                     break;
 
                 case ModifierType.LIQUIFY:
-                    // CSS cannot do liquify, skip
+                    // ✅ Canvas 网格变形已实现
+                    // 支持：Push、Pull、Twirl、Bloat、Pinch 模式
+                    // 使用 getLiquifyRenderer().renderLiquifyEffect() 渲染
                     break;
 
                 case ModifierType.DISPLACEMENT_MAP:
-                    // CSS cannot do displacement, skip
+                    // ✅ WebGL shader 已实现
+                    // 支持：水平/垂直缩放、多种映射源、边界处理
+                    // 使用 getWebGLRenderer().renderDisplacement() 渲染
                     break;
 
                 case ModifierType.REFRACTION:
@@ -190,7 +216,10 @@ const getDynamicLayerStyle = (layer: Layer): React.CSSProperties => {
                     break;
 
                 case ModifierType.PERTURB:
-                    // Approximate with blur
+                    // 当前使用 blur 近似，真实噪声位移效果需要 WebGL
+                    // ✅ WebGL shader 已实现（完整的 Simplex 噪声位移）
+                    // 支持：振幅、频率、八度、动画速度控制
+                    // 使用 getWebGLRenderer().renderPerturb() 渲染
                     const perturbAmp = (params.amplitude || 10) / 5;
                     filters.push(`blur(${perturbAmp}px)`);
                     break;
