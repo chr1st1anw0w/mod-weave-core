@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { LayerPanel } from "./components/LayerPanel";
 import { ChatPanel } from "./components/ChatPanel";
 import { NodeSystemPanel } from "./components/NodeSystemPanel";
@@ -6,6 +6,9 @@ import { Canvas } from "./components/Canvas";
 import { CommandPalette } from "./components/CommandPalette";
 import { LayerEditPage } from "./components/LayerEditPage";
 import { Icons } from "./components/Icons";
+import { useHistory } from "./hooks/useHistory";
+import { useChat } from "./hooks/useChat";
+import html2canvas from 'html2canvas';
 import {
   Layer,
   LayerType,
@@ -14,10 +17,6 @@ import {
   AiAction,
   Modifier,
 } from "./types";
-import {
-  processGeminiRequest,
-  GeminiRequestOptions,
-} from "./services/geminiService";
 
 // --- COMPLEX INITIAL DATA ---
 const INITIAL_LAYERS: Layer[] = [
@@ -145,49 +144,30 @@ const INITIAL_LAYERS: Layer[] = [
   },
 ];
 
-const INITIAL_MESSAGES: ChatMessage[] = [
-  {
-    id: "welcome",
-    senderId: "ai",
-    text: "Welcome to Mod-Weave Core. The 'Cyber Orb' scene is loaded. Try selecting a layer and asking me to change it, like 'make the orb's glow more intense' or 'add a glitch effect to the orb'.",
-    timestamp: Date.now(),
-  },
-];
-
 const App = () => {
-  const [history, setHistory] = useState<Layer[][]>([INITIAL_LAYERS]);
-  const [historyIndex, setHistoryIndex] = useState(0);
-  const layers = history[historyIndex];
+  const {
+    state: layers,
+    setState: setLayers,
+    undo,
+    redo,
+    canUndo,
+    canRedo,
+  } = useHistory<Layer[]>(INITIAL_LAYERS);
   const [selectedLayerId, setSelectedLayerId] = useState<string | null>(
     "cyber-orb"
   );
   const [viewMode, setViewMode] = useState<'main' | 'edit'>('main');
   const [editingLayerId, setEditingLayerId] = useState<string | null>(null);
-
-  const [messages, setMessages] = useState<ChatMessage[]>(INITIAL_MESSAGES);
   const [isChatOpen, setIsChatOpen] = useState(false); // AI chat minimized by default
-  const [isThinking, setIsThinking] = useState(false);
-  const [uploadedImage, setUploadedImage] = useState<string | null>(null);
   const [isCmdKOpen, setIsCmdKOpen] = useState(false);
 
-  const setLayersWithHistory = (
-    newLayers: Layer[] | ((prev: Layer[]) => Layer[])
-  ) => {
-    const nextLayers =
-      typeof newLayers === "function" ? newLayers(layers) : newLayers;
-    const newHistory = history.slice(0, historyIndex + 1);
-    newHistory.push(nextLayers);
-    if (newHistory.length > 50) newHistory.shift();
-    setHistory(newHistory);
-    setHistoryIndex(newHistory.length - 1);
-  };
-
-  const handleUndo = () => {
-    if (historyIndex > 0) setHistoryIndex(historyIndex - 1);
-  };
-  const handleRedo = () => {
-    if (historyIndex < history.length - 1) setHistoryIndex(historyIndex + 1);
-  };
+  const {
+    messages,
+    isThinking,
+    uploadedImage,
+    setUploadedImage,
+    sendMessage,
+  } = useChat(layers, selectedLayerId);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -197,69 +177,150 @@ const App = () => {
           setIsCmdKOpen((p) => !p);
         } else if (e.key === "z") {
           e.preventDefault();
-          e.shiftKey ? handleRedo() : handleUndo();
+          e.shiftKey ? redo() : undo();
         }
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [historyIndex, history.length]);
+  }, [undo, redo]);
 
-  const handleUpdateLayer = (layerId: string, updates: Partial<Layer>) => {
-    setLayersWithHistory((prev) =>
+  const handleUpdateLayer = useCallback((layerId: string, updates: Partial<Layer>) => {
+    setLayers((prev) =>
       prev.map((l) => {
         if (l.id === layerId) {
-          // Handle favorite/lastUsed updates for modifiers
-          if (updates.modifiers) {
-            updates.modifiers.forEach((updatedMod) => {
-              const existingMod = l.modifiers.find(
-                (m) => m.id === updatedMod.id
-              );
+          let finalUpdates = { ...updates };
+
+          // Immutable update for modifiers to handle metadata like lastUsed/isFavorite
+          if (finalUpdates.modifiers) {
+            finalUpdates.modifiers = finalUpdates.modifiers.map(updatedMod => {
+              const existingMod = l.modifiers.find(m => m.id === updatedMod.id);
               if (existingMod) {
-                updatedMod.lastUsed = Date.now();
-                // Preserve favorite status if it's not explicitly updated
-                updatedMod.isFavorite =
-                  updatedMod.isFavorite ?? existingMod.isFavorite;
+                return {
+                  ...updatedMod,
+                  lastUsed: Date.now(),
+                  // Preserve favorite status if it's not explicitly updated
+                  isFavorite: updatedMod.isFavorite ?? existingMod.isFavorite,
+                };
               }
+              return updatedMod;
             });
           }
-          return { ...l, ...updates };
+          return { ...l, ...finalUpdates };
         }
         return l;
       })
     );
+  }, [setLayers]);
+
+  const handleCreateGroup = useCallback(() => {
+    const newGroup: Layer = {
+      id: `grp-${Date.now()}`,
+      name: 'New Group',
+      type: LayerType.GROUP,
+      x: 0,
+      y: 0,
+      width: 400,
+      height: 400,
+      rotation: 0,
+      opacity: 1,
+      modifiers: [],
+      children: [],
+    };
+    setLayers((prev) => [...prev, newGroup]);
+  }, [setLayers]);
+
+  const handleExport = () => {
+    const element = document.getElementById('canvas-to-export');
+    if (element) {
+      html2canvas(element, {
+        backgroundColor: '#121214', // Match the app's background
+        useCORS: true, // If you have external images
+      }).then(canvas => {
+        const link = document.createElement('a');
+        link.download = 'mod-weave-export.png';
+        link.href = canvas.toDataURL('image/png');
+        link.click();
+      });
+    }
   };
+
+  const handleMoveLayer = useCallback((draggedId: string, targetId: string | null) => {
+    setLayers(prev => {
+        let layers = JSON.parse(JSON.stringify(prev)); // Deep copy for immutability
+
+        let draggedLayer: Layer | null = null;
+        let sourceList: Layer[] | undefined = layers;
+
+        // Find and remove the dragged layer from its original position
+        const findAndRemove = (list: Layer[]): Layer[] => {
+            const index = list.findIndex(l => l.id === draggedId);
+            if (index !== -1) {
+                [draggedLayer] = list.splice(index, 1);
+                sourceList = list;
+                return list;
+            }
+            for (const layer of list) {
+                if (layer.children) {
+                    const newChildren = findAndRemove(layer.children);
+                    if (newChildren !== layer.children) { // Found and removed
+                        layer.children = newChildren;
+                        return list;
+                    }
+                }
+            }
+            return list;
+        };
+
+        layers = findAndRemove(layers);
+
+        if (!draggedLayer) return prev; // Should not happen
+
+        // Reset parentId before placing it
+        delete draggedLayer.parentId;
+
+        if (targetId === null) { // Dropped at the root
+            layers.push(draggedLayer);
+        } else {
+            // Find the target and insert the layer
+            let targetFound = false;
+            const findAndInsert = (list: Layer[]) => {
+                const targetIndex = list.findIndex(l => l.id === targetId);
+                if (targetIndex !== -1) {
+                    const targetLayer = list[targetIndex];
+                    if (targetLayer.type === LayerType.GROUP) {
+                        // Drop into a group
+                        targetLayer.children = targetLayer.children || [];
+                        targetLayer.children.push(draggedLayer);
+                        draggedLayer.parentId = targetLayer.id;
+                    } else {
+                        // Drop onto a layer, insert before it
+                        list.splice(targetIndex, 0, draggedLayer);
+                    }
+                    targetFound = true;
+                    return;
+                }
+                for (const layer of list) {
+                    if (layer.children) findAndInsert(layer.children);
+                    if (targetFound) return;
+                }
+            };
+            findAndInsert(layers);
+
+            if (!targetFound) { // If target wasn't in any list (e.g., something went wrong), add to root
+                layers.push(draggedLayer);
+            }
+        }
+
+        return layers;
+    });
+  }, [setLayers]);
 
   const handleSendMessage = async (
     text: string,
-    options: GeminiRequestOptions
+    options: { uploadedImage: string | null, useFastMode: boolean }
   ) => {
-    setMessages((prev) => [
-      ...prev,
-      {
-        id: Date.now().toString(),
-        senderId: "user",
-        text,
-        timestamp: Date.now(),
-        attachment: options.uploadedImage
-          ? {
-              type: "image",
-              url: `data:image/png;base64,${options.uploadedImage}`,
-            }
-          : undefined,
-      },
-    ]);
-    setIsThinking(true);
-
-    const selectedLayer = selectedLayerId
-      ? layers.find((l) => l.id === selectedLayerId)
-      : null;
-    const response = await processGeminiRequest(text, layers, {
-      ...options,
-      selectedLayer,
-    });
-
-    setIsThinking(false);
+    const response = await sendMessage(text, options);
 
     // --- Handle AI Actions ---
     if (
@@ -267,7 +328,7 @@ const App = () => {
       response.actionPayload &&
       selectedLayerId
     ) {
-      setLayersWithHistory((prevLayers) => {
+      setLayers((prevLayers) => {
         return prevLayers.map((layer) => {
           if (layer.id !== selectedLayerId) return layer;
 
@@ -345,7 +406,7 @@ const App = () => {
         modifiers: [],
         connections: [],
       };
-      setLayersWithHistory((prev) => [...prev, newLayer]);
+      setLayers((prev) => [...prev, newLayer]);
       setSelectedLayerId(newLayer.id);
     } else if (
       response.actionType === "UPDATE_LAYER" &&
@@ -357,21 +418,6 @@ const App = () => {
       });
     }
 
-    setMessages((prev) => [
-      ...prev,
-      {
-        id: (Date.now() + 1).toString(),
-        senderId: "ai",
-        text: response.text,
-        timestamp: Date.now(),
-        attachment: response.generatedImage
-          ? {
-              type: "image",
-              url: `data:image/png;base64,${response.generatedImage}`,
-            }
-          : undefined,
-      },
-    ]);
   };
 
   const selectedLayer = layers.find((l) => l.id === selectedLayerId) || null;
@@ -410,8 +456,8 @@ const App = () => {
                  <span className="text-[10px] text-gray-500">Unsaved Changes</span>
              </div>
              <div className="flex items-center gap-1 ml-4 bg-black/20 rounded-lg p-1 border border-white/5 hidden md:flex">
-                <button onClick={handleUndo} disabled={historyIndex === 0} className="p-1 hover:bg-white/10 rounded disabled:opacity-30"><Icons.Undo size={14} /></button>
-                <button onClick={handleRedo} disabled={historyIndex === history.length - 1} className="p-1 hover:bg-white/10 rounded disabled:opacity-30"><Icons.Redo size={14} /></button>
+                <button onClick={undo} disabled={!canUndo} className="p-1 hover:bg-white/10 rounded disabled:opacity-30"><Icons.Undo size={14} /></button>
+                <button onClick={redo} disabled={!canRedo} className="p-1 hover:bg-white/10 rounded disabled:opacity-30"><Icons.Redo size={14} /></button>
              </div>
          </div>
          <div className="flex items-center gap-2 pointer-events-auto">
@@ -423,11 +469,11 @@ const App = () => {
                 ✏️ 編輯圖層
               </button>
              <button className="bg-white/10 hover:bg-white/20 px-3 py-1 rounded text-xs hidden md:block">Share</button>
-             <button className="bg-mw-accent hover:bg-violet-600 px-3 py-1 rounded text-xs">Export</button>
+             <button onClick={handleExport} className="bg-mw-accent hover:bg-violet-600 px-3 py-1 rounded text-xs">Export</button>
           </div>
       </header>
 
-      <main className="flex-1 relative z-0">
+      <main id="canvas-to-export" className="flex-1 relative z-0">
         <Canvas
           layers={layers}
           selectedLayerId={selectedLayerId}
@@ -441,6 +487,8 @@ const App = () => {
         layers={layers} 
         selectedLayerId={selectedLayerId} 
         onSelectLayer={setSelectedLayerId} 
+        onCreateGroup={handleCreateGroup}
+        onMoveLayer={handleMoveLayer}
         className={activeMobilePanel === 'layers' ? 'fixed inset-0 z-50 w-full h-full max-h-full rounded-none' : 'hidden md:flex absolute top-20 left-6 w-64 max-h-[70vh] z-40'}
       />
       

@@ -100,6 +100,7 @@ export interface Layer {
   modifiers: Modifier[];
   connections?: Connection[]; // Node Wiring
   children?: Layer[]; 
+  parentId?: string;
 }
 
 export interface User {
