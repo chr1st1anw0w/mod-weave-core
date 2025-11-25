@@ -68,7 +68,9 @@ import {
   SlidersHorizontal, // For category filter
   Star, // For favorites
   History, // For recently used
-  RefreshCcw // For reset button
+  RefreshCcw, // For reset button
+  RotateCw, // For rotation handle
+  RotateCcw // For counter-clockwise rotation
 } from 'lucide-react';
 
 export const Icons = {
@@ -141,5 +143,8 @@ export const Icons = {
   SlidersH: SlidersHorizontal, // Horizontal sliders for categories
   Star,
   History,
-  RefreshCcw
+  RefreshCcw,
+  RotateCw,
+  RotateCcw,
+  Maximize2
 };

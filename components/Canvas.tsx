@@ -247,11 +247,124 @@ const getDynamicLayerStyle = (layer: Layer): React.CSSProperties => {
 
 
 type TransformMode = 'move' | 'resize-nw' | 'resize-ne' | 'resize-sw' | 'resize-se' | 'rotate' | null;
+type TouchMode = 'none' | 'drag' | 'pinch' | 'rotate' | 'pan' | null;
 
 export const Canvas: React.FC<CanvasProps> = ({ layers, selectedLayerId, selectedLayerIds = [], onSelectLayer, onUpdateLayer }) => {
   const [transformMode, setTransformMode] = useState<TransformMode>(null);
   const [dragStart, setDragStart] = useState<{ x: number; y: number } | null>(null);
   const [initialLayer, setInitialLayer] = useState<Layer | null>(null);
+
+  // Touch-specific state
+  const [touchMode, setTouchMode] = useState<TouchMode>('none');
+  const [touchStart, setTouchStart] = useState<{ x: number; y: number } | null>(null);
+  const [initialPinchDistance, setInitialPinchDistance] = useState<number>(0);
+  const [initialPinchAngle, setInitialPinchAngle] = useState<number>(0);
+  const [initialScale, setInitialScale] = useState<number>(1);
+  const [initialRotation, setInitialRotation] = useState<number>(0);
+  const [isTouchDevice] = useState(() => window.matchMedia("(pointer: coarse)").matches);
+
+  // Helper functions for touch gestures
+  const getTouchDistance = (touches: TouchList): number => {
+    const dx = touches[0].clientX - touches[1].clientX;
+    const dy = touches[0].clientY - touches[1].clientY;
+    return Math.sqrt(dx * dx + dy * dy);
+  };
+
+  const getTouchAngle = (touches: TouchList): number => {
+    const dx = touches[1].clientX - touches[0].clientX;
+    const dy = touches[1].clientY - touches[0].clientY;
+    return Math.atan2(dy, dx) * (180 / Math.PI);
+  };
+
+  const getTouchCenter = (touches: TouchList): { x: number; y: number } => {
+    const x = (touches[0].clientX + touches[1].clientX) / 2;
+    const y = (touches[0].clientY + touches[1].clientY) / 2;
+    return { x, y };
+  };
+
+  // Touch event handlers
+  const handleTouchStart = (e: React.TouchEvent, layerId?: string) => {
+    const touches = e.touches;
+
+    if (touches.length === 1) {
+      // Single finger: select or drag layer
+      setTouchMode('drag');
+      setTouchStart({ x: touches[0].clientX, y: touches[0].clientY });
+
+      if (layerId) {
+        const layer = layers.find(l => l.id === layerId);
+        if (layer && !layer.locked) {
+          setInitialLayer({ ...layer });
+        }
+      }
+    } else if (touches.length === 2 && layerId && selectedLayerIds.includes(layerId)) {
+      // Two fingers on selected layer: pinch/rotate
+      e.preventDefault();
+      const layer = layers.find(l => l.id === layerId);
+      if (layer && !layer.locked) {
+        setTouchMode('pinch');
+        setInitialPinchDistance(getTouchDistance(touches));
+        setInitialPinchAngle(getTouchAngle(touches));
+        setInitialLayer({ ...layer });
+        setInitialScale(1);
+        setInitialRotation(layer.rotation);
+      }
+    }
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (!touchMode || touchMode === 'none') return;
+
+    const touches = e.touches;
+
+    if (touchMode === 'drag' && touches.length === 1 && touchStart && initialLayer && onUpdateLayer) {
+      // Single finger drag
+      e.preventDefault();
+      const dx = touches[0].clientX - touchStart.x;
+      const dy = touches[0].clientY - touchStart.y;
+
+      // Apply to all selected layers
+      selectedLayerIds.forEach(layerId => {
+        const layer = layers.find(l => l.id === layerId);
+        if (layer && !layer.locked) {
+          const offsetX = layer.id === initialLayer.id ? 0 : layer.x - initialLayer.x;
+          const offsetY = layer.id === initialLayer.id ? 0 : layer.y - initialLayer.y;
+          onUpdateLayer(layerId, {
+            x: initialLayer.x + dx + offsetX,
+            y: initialLayer.y + dy + offsetY
+          });
+        }
+      });
+    } else if (touchMode === 'pinch' && touches.length === 2 && initialLayer && onUpdateLayer) {
+      // Two finger pinch/rotate
+      e.preventDefault();
+      const currentDistance = getTouchDistance(touches);
+      const currentAngle = getTouchAngle(touches);
+
+      // Calculate scale change
+      const scaleChange = currentDistance / initialPinchDistance;
+      const newWidth = Math.max(50, initialLayer.width * scaleChange);
+      const newHeight = Math.max(50, initialLayer.height * scaleChange);
+
+      // Calculate rotation change
+      const angleDelta = currentAngle - initialPinchAngle;
+      const newRotation = (initialRotation + angleDelta) % 360;
+
+      onUpdateLayer(initialLayer.id, {
+        width: newWidth,
+        height: newHeight,
+        rotation: newRotation
+      });
+    }
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    setTouchMode('none');
+    setTouchStart(null);
+    setInitialLayer(null);
+    setInitialPinchDistance(0);
+    setInitialPinchAngle(0);
+  };
 
   const handleTransformStart = (e: React.MouseEvent, layerId: string, mode: TransformMode) => {
     e.stopPropagation();
@@ -341,9 +454,11 @@ export const Canvas: React.FC<CanvasProps> = ({ layers, selectedLayerId, selecte
 
   return (
     <div
-      className="w-full h-full relative overflow-hidden cursor-default grid-bg"
+      className="w-full h-full relative overflow-hidden cursor-default grid-bg touch-none"
       onClick={() => onSelectLayer(null, false, false)}
       onMouseMove={handleTransformMove}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
     >
       {/* Mocking a center point */}
       <div className="absolute top-1/2 left-1/2 w-4 h-4 -mt-2 -ml-2 border border-white/5 rounded-full opacity-20 pointer-events-none" />
@@ -356,7 +471,7 @@ export const Canvas: React.FC<CanvasProps> = ({ layers, selectedLayerId, selecte
             key={layer.id}
             onClick={(e) => {
               e.stopPropagation();
-              if (!layer.locked && !transformMode) {
+              if (!layer.locked && !transformMode && !touchMode) {
                 const multiSelect = e.metaKey || e.ctrlKey;
                 const rangeSelect = e.shiftKey;
                 onSelectLayer(layer.id, multiSelect, rangeSelect);
@@ -365,6 +480,13 @@ export const Canvas: React.FC<CanvasProps> = ({ layers, selectedLayerId, selecte
             onMouseDown={(e) => {
               if (selectedLayerIds.includes(layer.id) && !layer.locked) {
                 handleTransformStart(e, layer.id, 'move');
+              }
+            }}
+            onTouchStart={(e) => {
+              e.stopPropagation();
+              if (!layer.locked) {
+                onSelectLayer(layer.id, false, false);
+                handleTouchStart(e, layer.id);
               }
             }}
             style={{
@@ -431,31 +553,66 @@ export const Canvas: React.FC<CanvasProps> = ({ layers, selectedLayerId, selecte
             {/* Selection Handles */}
             {selectedLayerIds.includes(layer.id) && selectedLayerId === layer.id && (
               <>
-                {/* Corner Resize Handles */}
-                <div
-                  className="absolute -top-1 -left-1 w-2.5 h-2.5 bg-white rounded-full cursor-nwse-resize border border-mw-accent"
-                  onMouseDown={(e) => handleTransformStart(e, layer.id, 'resize-nw')}
-                />
-                <div
-                  className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-white rounded-full cursor-nesw-resize border border-mw-accent"
-                  onMouseDown={(e) => handleTransformStart(e, layer.id, 'resize-ne')}
-                />
-                <div
-                  className="absolute -bottom-1 -left-1 w-2.5 h-2.5 bg-white rounded-full cursor-nesw-resize border border-mw-accent"
-                  onMouseDown={(e) => handleTransformStart(e, layer.id, 'resize-sw')}
-                />
-                <div
-                  className="absolute -bottom-1 -right-1 w-2.5 h-2.5 bg-white rounded-full cursor-nwse-resize border border-mw-accent"
-                  onMouseDown={(e) => handleTransformStart(e, layer.id, 'resize-se')}
-                />
-                {/* Rotation Handle */}
-                <div
-                  className="absolute -top-8 left-1/2 -translate-x-1/2 w-3 h-3 bg-mw-accent rounded-full cursor-grab active:cursor-grabbing border border-white shadow-lg"
-                  onMouseDown={(e) => handleTransformStart(e, layer.id, 'rotate')}
-                  title="Rotate"
-                />
-                {/* Rotation Handle Connector Line */}
-                <div className="absolute -top-8 left-1/2 -translate-x-1/2 w-px h-7 bg-mw-accent/50 pointer-events-none" />
+                {isTouchDevice ? (
+                  /* Mobile Touch-Optimized Handles */
+                  <>
+                    {/* Top-Left: Resize */}
+                    <div
+                      className="absolute -top-5 -left-5 w-11 h-11 bg-mw-accent/80 rounded-lg backdrop-blur-sm border border-white/30 shadow-lg flex items-center justify-center touch-manipulation active:scale-95 transition-transform"
+                      onTouchStart={(e) => {
+                        e.preventDefault();
+                        handleTransformStart(e as any, layer.id, 'resize-nw');
+                      }}
+                    >
+                      <Icons.Maximize2 size={20} className="text-white" />
+                    </div>
+
+                    {/* Bottom-Right: Rotate */}
+                    <div
+                      className="absolute -bottom-6 -right-6 w-12 h-12 bg-mw-cyan/80 rounded-full backdrop-blur-sm border-2 border-white/40 shadow-lg flex items-center justify-center touch-manipulation active:scale-95 transition-transform"
+                      onTouchStart={(e) => {
+                        e.preventDefault();
+                        // For touch, we'll use pinch gesture for rotation
+                      }}
+                    >
+                      <Icons.RotateCw size={24} className="text-white" />
+                    </div>
+
+                    {/* Touch hint overlay */}
+                    <div className="absolute -top-16 left-1/2 -translate-x-1/2 bg-black/90 backdrop-blur-sm px-3 py-1.5 rounded-full text-[10px] text-white/70 whitespace-nowrap pointer-events-none animate-pulse">
+                      Two fingers to resize/rotate
+                    </div>
+                  </>
+                ) : (
+                  /* Desktop Mouse-Optimized Handles */
+                  <>
+                    {/* Corner Resize Handles */}
+                    <div
+                      className="absolute -top-1 -left-1 w-2.5 h-2.5 bg-white rounded-full cursor-nwse-resize border border-mw-accent"
+                      onMouseDown={(e) => handleTransformStart(e, layer.id, 'resize-nw')}
+                    />
+                    <div
+                      className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-white rounded-full cursor-nesw-resize border border-mw-accent"
+                      onMouseDown={(e) => handleTransformStart(e, layer.id, 'resize-ne')}
+                    />
+                    <div
+                      className="absolute -bottom-1 -left-1 w-2.5 h-2.5 bg-white rounded-full cursor-nesw-resize border border-mw-accent"
+                      onMouseDown={(e) => handleTransformStart(e, layer.id, 'resize-sw')}
+                    />
+                    <div
+                      className="absolute -bottom-1 -right-1 w-2.5 h-2.5 bg-white rounded-full cursor-nwse-resize border border-mw-accent"
+                      onMouseDown={(e) => handleTransformStart(e, layer.id, 'resize-se')}
+                    />
+                    {/* Rotation Handle */}
+                    <div
+                      className="absolute -top-8 left-1/2 -translate-x-1/2 w-3 h-3 bg-mw-accent rounded-full cursor-grab active:cursor-grabbing border border-white shadow-lg"
+                      onMouseDown={(e) => handleTransformStart(e, layer.id, 'rotate')}
+                      title="Rotate"
+                    />
+                    {/* Rotation Handle Connector Line */}
+                    <div className="absolute -top-8 left-1/2 -translate-x-1/2 w-px h-7 bg-mw-accent/50 pointer-events-none" />
+                  </>
+                )}
               </>
             )}
             {/* Secondary Selection Indicators (no handles) */}
