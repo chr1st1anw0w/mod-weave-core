@@ -5,18 +5,12 @@ import { Icons } from './Icons';
 import { useLongPress, hapticFeedback, useThrottle } from '../hooks/useMobileOptimizations';
 
 // ============================================================================
-// WebGL 渲染集成（可选）
+// WebGL 渲染集成
 // ============================================================================
-// 如需启用高级 Distort 效果（Wave、Liquify、Displacement Map），
-// 请取消以下导入的注释并按照 WEBGL_INTEGRATION_GUIDE.md 进行集成
-//
-// import { getWebGLRenderer } from '../services/webglRenderer';
-// import { getLiquifyRenderer } from '../services/liquifyRenderer';
-// import { WebGLLayer, layerNeedsWebGL } from './WebGLLayer';
-//
+import { WebGLLayer, layerNeedsWebGL } from './WebGLLayer';
 // 使用方法：
 // 1. 在渲染图层时检查 layerNeedsWebGL(layer)
-// 2. 如果为 true，使用 <WebGLLayer> 组件而不是常规渲染
+// 2. 如果为 true，使用 <WebGLLayer> 组件覆盖常规渲染
 // 3. 详细步骤请参考 WEBGL_INTEGRATION_GUIDE.md
 // ============================================================================
 
@@ -593,6 +587,7 @@ export const Canvas: React.FC<CanvasProps> = ({ layers, selectedLayerId, selecte
 
       {layers.filter(layer => layer.visible !== false).map(layer => {
         const dynamicStyle = getDynamicLayerStyle(layer);
+        const needsWebGL = layerNeedsWebGL(layer);
 
         return (
           <div
@@ -617,19 +612,13 @@ export const Canvas: React.FC<CanvasProps> = ({ layers, selectedLayerId, selecte
                 handleTouchStart(e, layer.id);
               }
             }}
-            onDoubleClick={(e) => {
-              e.stopPropagation();
-              if (onEnterEditMode) {
-                onEnterEditMode(layer.id);
-              }
-            }}
             style={{
               transform: `translate(${layer.x}px, ${layer.y}px) rotate(${layer.rotation}deg)`,
               width: layer.width,
               height: layer.height,
               opacity: layer.opacity,
               ...layer.style,
-              ...dynamicStyle // Apply real-time modifier effects
+              ...(!needsWebGL && dynamicStyle) // Only apply CSS filters if not using WebGL
             }}
             className={`
               absolute transition-all duration-100 group
@@ -646,26 +635,46 @@ export const Canvas: React.FC<CanvasProps> = ({ layers, selectedLayerId, selecte
                   : 'ring-2 ring-mw-cyan/60 shadow-[0_0_15px_rgba(34,211,238,0.3)]'  // Secondary selection
                 : ''}
             `}>
-              {layer.type === LayerType.IMAGE && (
-                <img src={layer.content} alt={layer.name} className="w-full h-full object-cover pointer-events-none" />
-              )}
-              
-              {layer.type === LayerType.TEXT && (
-                <div className="w-full h-full flex items-center justify-center text-white font-bold text-4xl whitespace-nowrap p-4">
-                  {layer.content}
-                </div>
-              )}
-              
-              {layer.type === LayerType.SHAPE && (
-                <div className="w-full h-full" />
+              {/* WebGL 渲染层（如果需要） */}
+              {needsWebGL ? (
+                <WebGLLayer
+                  layer={layer}
+                  enableAnimation={layer.modifiers.some(m =>
+                    m.active &&
+                    (m.type === ModifierType.WAVE || m.type === ModifierType.PERTURB) &&
+                    m.params.speed > 0
+                  )}
+                />
+              ) : (
+                <>
+                  {/* 常规 CSS 渲染 */}
+                  {layer.type === LayerType.IMAGE && (
+                    <img src={layer.content} alt={layer.name} className="w-full h-full object-cover pointer-events-none" />
+                  )}
+
+                  {layer.type === LayerType.TEXT && (
+                    <div className="w-full h-full flex items-center justify-center text-white font-bold text-4xl whitespace-nowrap p-4">
+                      {layer.content}
+                    </div>
+                  )}
+
+                  {layer.type === LayerType.SHAPE && (
+                    <div className="w-full h-full" />
+                  )}
+                </>
               )}
 
               {/* Modifier Indicators (Visual Only) */}
               {layer.modifiers.some(m => m.active) && (
-                <div className="absolute bottom-2 right-2 flex gap-1 bg-black/30 backdrop-blur-sm p-1 rounded-full border border-white/10">
+                <div className="absolute bottom-2 right-2 flex gap-1 bg-black/30 backdrop-blur-sm p-1 rounded-full border border-white/10 pointer-events-none z-20">
                   {layer.modifiers.filter(m=>m.active).slice(0, 3).map(m => (
                     <div key={m.id} className="w-1.5 h-1.5 rounded-full bg-mw-cyan" title={m.name} />
                   ))}
+                  {layer.modifiers.filter(m=>m.active).length > 3 && (
+                    <div className="text-[8px] text-mw-cyan font-bold px-1">
+                      +{layer.modifiers.filter(m=>m.active).length - 3}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
