@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useRef } from 'react';
 import { Layer, Modifier, LayerType, ModifierType } from '../types';
 import { Icons } from './Icons';
+import { FileInput, FileInputHandle } from './ui/FileInput';
 
 interface LayerPanelProps {
   layers: Layer[];
@@ -8,6 +9,7 @@ interface LayerPanelProps {
   onSelectLayer: (id: string) => void;
   onCreateGroup: () => void;
   onMoveLayer: (draggedId: string, targetId: string | null) => void;
+  onImportImage: (imageData: string) => void;
   className?: string; // Added for mobile override
 }
 
@@ -86,16 +88,24 @@ const LayerItem: React.FC<{
 };
 
 
-export const LayerPanel: React.FC<LayerPanelProps> = ({ layers, selectedLayerId, onSelectLayer, onCreateGroup, onMoveLayer, className }) => {
+export const LayerPanel: React.FC<LayerPanelProps> = ({ layers, selectedLayerId, onSelectLayer, onCreateGroup, onMoveLayer, onImportImage, className }) => {
+  const fileInputRef = useRef<FileInputHandle>(null);
+
   return (
     <div className={`bg-mw-panel/90 backdrop-blur-md border border-white/10 rounded-xl shadow-2xl overflow-hidden flex flex-col animate-float ${className || 'absolute top-20 left-6 w-64 max-h-[70vh]'}`} style={{ animationDuration: '8s' }}>
+      <FileInput ref={fileInputRef} onFileSelect={onImportImage} />
       <div className="p-4 border-b border-white/5 flex justify-between items-center">
         <h2 className="text-sm font-semibold text-gray-300 flex items-center gap-2">
           <Icons.Layers size={16} /> Layers
         </h2>
-        <button onClick={onCreateGroup} className="hover:bg-white/10 p-1 rounded transition-colors" title="Create New Group">
-          <Icons.FolderPlus size={14} className="text-gray-400" />
-        </button>
+        <div className="flex items-center gap-2">
+          <button onClick={() => fileInputRef.current?.openFileDialog()} className="hover:bg-white/10 p-1 rounded transition-colors" title="Import Image">
+            <Icons.ImagePlus size={14} className="text-gray-400" />
+          </button>
+          <button onClick={onCreateGroup} className="hover:bg-white/10 p-1 rounded transition-colors" title="Create New Group">
+            <Icons.FolderPlus size={14} className="text-gray-400" />
+          </button>
+        </div>
       </div>
 
       <div className="flex-1 overflow-y-auto p-2 space-y-1 scrollbar-hide">

@@ -10,26 +10,30 @@ export const useHistory = <T,>(initialState: T) => {
   const canUndo = index > 0;
   const canRedo = index < history.length - 1;
 
-  const setState = useCallback((newState: T | ((prevState: T) => T)) => {
+  const setState = useCallback((newState: T | ((prevState: T) => T), skipHistory = false) => {
     const nextState = typeof newState === 'function'
       ? (newState as (prevState: T) => T)(currentState)
       : newState;
 
-    // If the new state is the same as the current one, do nothing.
     if (Object.is(nextState, currentState)) {
       return;
     }
 
-    const newHistory = history.slice(0, index + 1);
-    newHistory.push(nextState);
+    if (skipHistory) {
+        const newHistory = [...history];
+        newHistory[index] = nextState;
+        setHistory(newHistory);
+    } else {
+        const newHistory = history.slice(0, index + 1);
+        newHistory.push(nextState);
 
-    // Trim history if it exceeds the max size
-    if (newHistory.length > MAX_HISTORY_SIZE) {
-      newHistory.shift();
+        if (newHistory.length > MAX_HISTORY_SIZE) {
+            newHistory.shift();
+        }
+
+        setHistory(newHistory);
+        setIndex(newHistory.length - 1);
     }
-
-    setHistory(newHistory);
-    setIndex(newHistory.length - 1);
   }, [currentState, history, index]);
 
   const undo = useCallback(() => {

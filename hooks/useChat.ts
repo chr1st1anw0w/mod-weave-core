@@ -6,7 +6,7 @@ const INITIAL_MESSAGES: ChatMessage[] = [
   {
     id: "welcome",
     senderId: "ai",
-    text: "Welcome to Mod-Weave Core. The 'Cyber Orb' scene is loaded. Try selecting a layer and asking me to change it, like 'make the orb's glow more intense' or 'add a glitch effect to the orb'.",
+    text: "Welcome to Mod-Weave Core. The 'Swiss Pattern' scene is loaded. Try selecting the procedural layer to open the Pattern Generator and modify its properties.",
     timestamp: Date.now(),
   },
 ];

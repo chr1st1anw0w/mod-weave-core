@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import { LayerPanel } from "./components/LayerPanel";
 import { ChatPanel } from "./components/ChatPanel";
 import { NodeSystemPanel } from "./components/NodeSystemPanel";
+import { PatternGeneratorPanel } from "./components/PatternGeneratorPanel";
 import { Canvas } from "./components/Canvas";
 import { CommandPalette } from "./components/CommandPalette";
 import { LayerEditPage } from "./components/LayerEditPage";
@@ -9,6 +10,7 @@ import { Icons } from "./components/Icons";
 import { useHistory } from "./hooks/useHistory";
 import { useChat } from "./hooks/useChat";
 import html2canvas from 'html2canvas';
+import { generateSVG } from "./services/patternGenerator";
 import {
   Layer,
   LayerType,
@@ -142,6 +144,27 @@ const INITIAL_LAYERS: Layer[] = [
       textShadow: "0 0 10px rgba(6,182,212,0.5)",
     },
   },
+  {
+    id: 'procedural-pattern',
+    name: 'Swiss Pattern',
+    type: LayerType.PROCEDURAL,
+    x: 100,
+    y: 100,
+    width: 600,
+    height: 400,
+    rotation: 0,
+    opacity: 1,
+    modifiers: [],
+    patternState: {
+        grid: { width: 40, height: 40, spacingX: 50, spacingY: 50, cols: 10, rows: 6 },
+        unit: { shape: 'rect', strokeWidth: 0, strokeColor: '#ffffff', borderRadius: 0, customSvg: null },
+        transform: { rotation: 0, variance: 0, scaleX: 1.0, scaleY: 1.0, skewX: 0, skewY: 0 },
+        sequence: { type: 'none', min: -0.1, max: 0.1, direction: 'row', angle: 0, reverse: false, applyTo: ['size'], customValues: [] },
+        mask: { type: 'image', imageUrl: null, opacity: 100, perlin: { scale: 20, seed: 12345 }, settings: { width: { enabled: false, min: 10, max: 60 }, height: { enabled: false, min: 10, max: 60 }, opacity: { enabled: false, min: 0, max: 1 }, rotation: { enabled: false, min: -45, max: 45 }, radius: { enabled: false, min: 0, max: 50 }, color: { enabled: false, min: 0, max: 50 }, strokeWidth: { enabled: false, min: 0, max: 10 }, x: { enabled: false, min: -50, max: 50 }, y: { enabled: false, min: -50, max: 50 } } },
+        distortion: { waveAmount: 0, waveFreq: 1, vortexAmount: 0, vortexRadius: 200 },
+        colors: { background: '#0a0a0a', gradient: { type: 'linear', angle: 45, stops: [{ id: '1', color: '#00dc82', position: 0 }, { id: '2', color: '#007fdc', position: 100 }] } }
+    }
+  }
 ];
 
 const App = () => {
@@ -184,6 +207,30 @@ const App = () => {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [undo, redo]);
+
+  useEffect(() => {
+    // Debounce state updates to avoid re-generating SVG on every small change.
+    const handler = setTimeout(() => {
+        let needsUpdate = false;
+        const newLayers = layers.map(layer => {
+            if (layer.type === LayerType.PROCEDURAL && layer.patternState) {
+                const newSvg = generateSVG(layer.patternState, null);
+                const newContent = `data:image/svg+xml;base64,${btoa(newSvg)}`;
+                if (newContent !== layer.content) {
+                    needsUpdate = true;
+                    return { ...layer, content: newContent };
+                }
+            }
+            return layer;
+        });
+
+        if (needsUpdate) {
+            setLayers(newLayers, true); // Add a flag to skip history for this update
+        }
+    }, 200);
+
+    return () => clearTimeout(handler);
+  }, [layers, setLayers]);
 
   const handleUpdateLayer = useCallback((layerId: string, updates: Partial<Layer>) => {
     setLayers((prev) =>
@@ -228,6 +275,23 @@ const App = () => {
       children: [],
     };
     setLayers((prev) => [...prev, newGroup]);
+  }, [setLayers]);
+
+  const handleImportImage = useCallback((imageData: string) => {
+    const newImageLayer: Layer = {
+      id: `img-${Date.now()}`,
+      name: 'Imported Image',
+      type: LayerType.IMAGE,
+      x: 150,
+      y: 150,
+      width: 512,
+      height: 512,
+      rotation: 0,
+      opacity: 1,
+      content: imageData,
+      modifiers: [],
+    };
+    setLayers((prev) => [...prev, newImageLayer]);
   }, [setLayers]);
 
   const handleExport = () => {
@@ -489,15 +553,23 @@ const App = () => {
         onSelectLayer={setSelectedLayerId} 
         onCreateGroup={handleCreateGroup}
         onMoveLayer={handleMoveLayer}
+        onImportImage={handleImportImage}
         className={activeMobilePanel === 'layers' ? 'fixed inset-0 z-50 w-full h-full max-h-full rounded-none' : 'hidden md:flex absolute top-20 left-6 w-64 max-h-[70vh] z-40'}
       />
       
-      <NodeSystemPanel 
-        layer={selectedLayer} 
-        onUpdateLayer={handleUpdateLayer} 
-        selectedLayerId={selectedLayerId} 
-        isMobile={activeMobilePanel === 'nodes'}
-      />
+      {selectedLayer?.type === LayerType.PROCEDURAL ? (
+        <PatternGeneratorPanel
+          layer={selectedLayer}
+          onUpdateLayer={handleUpdateLayer}
+        />
+      ) : (
+        <NodeSystemPanel
+          layer={selectedLayer}
+          onUpdateLayer={handleUpdateLayer}
+          selectedLayerId={selectedLayerId}
+          isMobile={activeMobilePanel === 'nodes'}
+        />
+      )}
       
       <ChatPanel 
         messages={messages} 
