@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { Layer, Modifier, ModifierType, Connection, IoDataType } from '../types';
 import { Icons } from './Icons';
 import * as Nodes from './ModifierNodes';
+import { ModifierCard } from './ModifierCard';
 
 interface NodeSystemPanelProps {
   layer: Layer | null;
@@ -113,6 +114,111 @@ const MODIFIER_CATALOG_RAW = [
 
 const MODIFIER_CATEGORIES = Array.from(new Set(MODIFIER_CATALOG_RAW.map(m => m.cat)));
 
+// ModifierCardWrapper - handles drag-and-drop for ModifierCard
+interface ModifierCardWrapperProps {
+  modifier: Modifier;
+  index: number;
+  isSolo: boolean;
+  isExpanded: boolean;
+  onToggleActive: () => void;
+  onToggleSolo: () => void;
+  onToggleExpand: () => void;
+  onRemove: () => void;
+  onUpdateParam: (modId: string, key: string, value: any) => void;
+  onDragStart: (e: React.DragEvent, index: number) => void;
+  onDrop: (e: React.DragEvent, index: number) => void;
+  onDragOver: (e: React.DragEvent) => void;
+}
+
+const ModifierCardWrapper: React.FC<ModifierCardWrapperProps> = ({
+  modifier,
+  index,
+  isSolo,
+  isExpanded,
+  onToggleActive,
+  onToggleSolo,
+  onToggleExpand,
+  onRemove,
+  onUpdateParam,
+  onDragStart,
+  onDrop,
+  onDragOver,
+}) => {
+  const [isDragOver, setIsDragOver] = useState(false);
+  const [isDraggingNode, setIsDraggingNode] = useState(false);
+
+  const handleNodeDragStart = useCallback((e: React.DragEvent) => {
+    const target = e.target as HTMLElement;
+    const isDragHandleArea = target.closest('.drag-handle-icon');
+    
+    if (!isDragHandleArea) {
+      e.preventDefault();
+      return;
+    }
+    
+    setIsDraggingNode(true);
+    onDragStart(e, index);
+  }, [onDragStart, index]);
+
+  const handleNodeDragEnd = useCallback(() => {
+    setIsDraggingNode(false);
+  }, []);
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    setIsDragOver(true);
+    onDragOver(e);
+  }, [onDragOver]);
+
+  const handleDragLeave = useCallback(() => {
+    setIsDragOver(false);
+  }, []);
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    setIsDragOver(false);
+    onDrop(e, index);
+  }, [onDrop, index]);
+
+  const dragHandleProps = {
+    draggable: true,
+    onDragStart: handleNodeDragStart,
+    onMouseDown: (e: React.MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (!target.closest('.drag-handle-icon')) {
+        e.stopPropagation();
+      }
+    },
+  };
+
+  const containerProps = {
+    onDrop: handleDrop,
+    onDragOver: handleDragOver,
+    onDragLeave: handleDragLeave,
+   onDragEnd: handleNodeDragEnd,
+  };
+
+  return (
+    <div className="relative">
+      {isDragOver && (
+        <div className="absolute -top-1 left-0 right-0 h-0.5 bg-mw-accent shadow-[0_0_8px_rgba(139,92,246,0.8)] rounded-full z-50 animate-pulse" />
+      )}
+      <ModifierCard
+        modifier={modifier}
+        index={index}
+        isSolo={isSolo}
+        isExpanded={isExpanded}
+        onToggleActive={onToggleActive}
+        onToggleSolo={onToggleSolo}
+        onToggleExpand={onToggleExpand}
+        onRemove={onRemove}
+        onUpdateParam={onUpdateParam}
+        dragHandleProps={dragHandleProps}
+        containerProps={containerProps}
+      />
+    </div>
+  );
+};
+
+
 export const NodeSystemPanel: React.FC<NodeSystemPanelProps> = React.memo(({ layer, onUpdateLayer, selectedLayerId, isMobile }) => {
   const [showAddMenu, setShowAddMenu] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -122,6 +228,8 @@ export const NodeSystemPanel: React.FC<NodeSystemPanelProps> = React.memo(({ lay
   const [showFavorites, setShowFavorites] = useState(false);
   const [showRecent, setShowRecent] = useState(false);
   const [panelSize, setPanelSize] = useState({ width: 250, height: window.innerHeight * 0.7 });
+  const [soloModId, setSoloModId] = useState<string | null>(null);
+  const [expandedMods, setExpandedMods] = useState<Set<string>>(new Set());
 
   const containerRef = useRef<HTMLDivElement>(null);
   const nodeRefs = useRef<{[key: string]: HTMLDivElement | null}>({});
@@ -298,9 +406,13 @@ export const NodeSystemPanel: React.FC<NodeSystemPanelProps> = React.memo(({ lay
   }, [layer.id, layer.modifiers, onUpdateLayer]);
 
   const getPreviewFilter = useCallback(() => {
+     // Solo mode: only apply the solo modifier's effects
+     const activeModifiers = soloModId 
+       ? layer.modifiers.filter(m => m.id === soloModId)
+       : layer.modifiers.filter(m => m.active);
+
      let filters = [];
-     for(const m of layer.modifiers) {
-        if(!m.active) continue;
+     for(const m of activeModifiers) {
         const params = m.params;
         switch(m.type) {
           // ===== BLUR EFFECTS =====
@@ -398,7 +510,7 @@ export const NodeSystemPanel: React.FC<NodeSystemPanelProps> = React.memo(({ lay
         }
      }
      return filters.join(' ');
-  }, [layer.modifiers]);
+  }, [layer.modifiers, soloModId]);
 
   const allModifiers = useMemo(() => {
     return MODIFIER_CATALOG_RAW.map(item => {
@@ -505,12 +617,45 @@ export const NodeSystemPanel: React.FC<NodeSystemPanelProps> = React.memo(({ lay
           </div>
         </div>
         {isPreviewOpen && <div className="h-32 bg-black/50 border-b border-white/5 flex items-center justify-center shrink-0"><div className="w-20 h-20 bg-white/10 rounded overflow-hidden" style={{ filter: getPreviewFilter(), transition: 'filter 0.2s' }}><div className="w-full h-full bg-gradient-to-br from-mw-accent to-mw-cyan flex items-center justify-center text-4xl">⚡️</div></div></div>}
-        <div ref={containerRef} className="flex-1 overflow-y-auto p-3 space-y-3 scrollbar-hide bg-grid-white/[0.02] relative min-h-[100px]">
+        <div ref={containerRef} className="flex-1 overflow-y-auto p-3 space-y-2 scrollbar-hide bg-grid-white/[0.02] relative min-h-[100px]">
           <svg className="absolute top-0 left-0 w-full h-full pointer-events-none z-0 overflow-visible">
               {layer.connections?.map(conn => <path key={conn.id} d={getWirePath(conn.fromModId, conn.fromPort, conn.toModId, conn.toPort)} stroke="#8b5cf6" strokeWidth="2" fill="none" strokeOpacity="0.6" />)}
               {wireStart && <path d={`M ${wireStart.startPos.x} ${wireStart.startPos.y} C ${wireStart.startPos.x + 80} ${wireStart.startPos.y}, ${mousePos.x - 80} ${mousePos.y}, ${mousePos.x} ${mousePos.y}`} stroke="#fff" strokeWidth="1" strokeDasharray="4 2" fill="none" />}
           </svg>
-          {layer.modifiers.length === 0 ? <div className="flex flex-col items-center justify-center h-full text-gray-600 gap-2 mt-10"><Icons.Box size={24} className="opacity-20" /><span className="text-[10px]">No Modifiers</span></div> : <div className="relative z-10 space-y-3 pb-20">{layer.modifiers.map((mod, i) => <NodeWrapper key={mod.id} mod={mod} index={i} onDragStart={onDragStart} onDrop={onDrop} onDragOver={onDragOver} handleUpdateModifier={handleUpdateModifier} handleRemoveModifier={handleRemoveModifier} handleToggleActive={handleToggleActive} handleToggleFavorite={handleToggleFavorite} handleParamReset={handleParamReset} setRef={(el:any) => nodeRefs.current[mod.id] = el} onIOClick={onIOClick} isSelected={selectedLayerId === layer.id /* Pass isSelected */} />)}</div>}
+          {layer.modifiers.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-full text-gray-600 gap-2 mt-10">
+              <Icons.Box size={24} className="opacity-20" />
+              <span className="text-[10px]">No Modifiers</span>
+            </div>
+          ) : (
+            <div className="relative z-10 space-y-2 pb-20">
+              {layer.modifiers.map((mod, i) => (
+                <ModifierCardWrapper
+                  key={mod.id}
+                  modifier={mod}
+                  index={i}
+                  isSolo={soloModId === mod.id}
+                  isExpanded={expandedMods.has(mod.id)}
+                  onToggleActive={() => handleToggleActive(mod.id)}
+                  onToggleSolo={() => setSoloModId(prev => prev === mod.id ? null : mod.id)}
+                  onToggleExpand={() => setExpandedMods(prev => {
+                    const next = new Set(prev);
+                    if (next.has(mod.id)) {
+                      next.delete(mod.id);
+                    } else {
+                      next.add(mod.id);
+                    }
+                    return next;
+                  })}
+                  onRemove={() => handleRemoveModifier(mod.id)}
+                  onUpdateParam={handleUpdateModifier}
+                  onDragStart={onDragStart}
+                  onDrop={onDrop}
+                  onDragOver={onDragOver}
+                />
+              ))}
+            </div>
+          )}
         </div>
         <div className="p-2 border-t border-white/5 bg-[#18181b] relative shrink-0 rounded-b-lg">
           {!showAddMenu ? (
@@ -535,125 +680,3 @@ export const NodeSystemPanel: React.FC<NodeSystemPanelProps> = React.memo(({ lay
       </div>
   );
 });
-
-interface NodeWrapperProps {
-  mod: Modifier;
-  index: number; // Added index prop
-  onDragStart: (e: React.DragEvent, index: number) => void;
-  onDrop: (e: React.DragEvent, index: number) => void;
-  onDragOver: (e: React.DragEvent) => void;
-  handleUpdateModifier: (modId: string, paramKey: string, value: any) => void;
-  handleRemoveModifier: (modId: string) => void;
-  handleToggleActive: (modId: string) => void;
-  handleToggleFavorite: (modId: string) => void;
-  handleParamReset: (modId: string, paramKey: string, defaultValue: any) => void;
-  setRef: (el: HTMLDivElement | null) => void;
-  onIOClick: (e: React.MouseEvent, modId: string, type: 'in' | 'out', portId: string, dataType: IoDataType) => void;
-  isSelected: boolean;
-}
-
-const NodeWrapper: React.FC<NodeWrapperProps> = ({ mod, index, onDragStart, onDrop, onDragOver, handleUpdateModifier, handleRemoveModifier, handleToggleActive, handleToggleFavorite, handleParamReset, setRef, onIOClick, isSelected }) => {
-    const [isDragOver, setIsDragOver] = useState(false);
-    const [isDraggingNode, setIsDraggingNode] = useState(false);
-
-    const handleContainerMouseDown = useCallback((e: React.MouseEvent) => {
-        const target = e.target as HTMLElement;
-        const ioType = target.getAttribute('data-io-type');
-        const modId = target.getAttribute('data-mod-id');
-        const portId = target.getAttribute('data-port-id');
-        const dataType = target.getAttribute('data-data-type') as IoDataType;
-
-        // If clicking on an IO dot, start wiring
-        if (ioType && modId && portId && dataType) {
-            onIOClick(e, modId, ioType as 'in'|'out', portId, dataType);
-            e.stopPropagation(); // Prevent drag start when wiring
-            e.preventDefault();
-        }
-    }, [onIOClick]);
-
-    // Drag handle specific handlers
-    const handleDragHandleMouseDown = useCallback((e: React.MouseEvent) => {
-        // Only allow dragging from the drag handle (three lines icon)
-        const target = e.target as HTMLElement;
-        const isDragHandle = target.closest('.drag-handle-icon');
-        
-        if (!isDragHandle) {
-            // Clicked on button or other interactive elements in header
-            e.stopPropagation();
-        }
-    }, []);
-
-    const handleNodeDragStart = useCallback((e: React.DragEvent) => {
-        // Check if drag started from the drag handle area
-        const target = e.target as HTMLElement;
-        const isDragHandleArea = target.closest('.drag-handle-icon');
-        
-        if (!isDragHandleArea) {
-            // Prevent dragging if not from drag handle
-            e.preventDefault();
-            return;
-        }
-        
-        setIsDraggingNode(true);
-        onDragStart(e, index);
-    }, [onDragStart, index]);
-
-    const handleNodeDragEnd = useCallback(() => {
-        setIsDraggingNode(false);
-    }, []);
-
-    const handleDragOver = useCallback((e: React.DragEvent) => {
-        setIsDragOver(true);
-        onDragOver(e);
-    }, [onDragOver]);
-
-    const handleDragLeave = useCallback((e: React.DragEvent) => {
-        setIsDragOver(false);
-    }, []);
-
-    const handleDrop = useCallback((e: React.DragEvent) => {
-        setIsDragOver(false);
-        onDrop(e, index);
-    }, [onDrop, index]);
-
-    const NodeComponent = NodeComponentMap[mod.type] || Nodes.GenericExtendedNode;
-
-    const finalProps = {
-      ref: setRef,
-      modId: mod.id,
-      name: mod.name,
-      type: mod.type,
-      active: mod.active,
-      params: mod.params,
-      onChange: (k: string, v: any) => handleUpdateModifier(mod.id, k, v),
-      onRemove: () => handleRemoveModifier(mod.id),
-      onToggleActive: () => handleToggleActive(mod.id),
-      onToggleFavorite: () => handleToggleFavorite(mod.id),
-      onParamReset: (paramKey: string, defaultValue: any) => handleParamReset(mod.id, paramKey, defaultValue),
-      isSelected: isSelected,
-      isDragging: isDraggingNode,
-      // Container props - NO draggable here
-      containerProps: {
-        onMouseDown: handleContainerMouseDown,
-        onDrop: handleDrop,
-        onDragOver: handleDragOver,
-        onDragLeave: handleDragLeave,
-        onDragEnd: handleNodeDragEnd
-      },
-      // Drag handle props - draggable ONLY on the handle
-      dragHandleProps: {
-        draggable: true,
-        onDragStart: handleNodeDragStart,
-        onMouseDown: handleDragHandleMouseDown
-      }
-    };
-
-    return (
-      <div className="relative">
-        {isDragOver && (
-          <div className="absolute -top-1 left-0 right-0 h-0.5 bg-mw-accent shadow-[0_0_8px_rgba(139,92,246,0.8)] rounded-full z-50 animate-pulse" />
-        )}
-        <NodeComponent {...finalProps} />
-      </div>
-    );
-}

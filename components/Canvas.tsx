@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { Layer, LayerType, ModifierType } from '../types';
 import { ContextMenu, useContextMenu } from './ContextMenu';
 import { Icons } from './Icons';
@@ -10,6 +10,7 @@ interface CanvasProps {
   selectedLayerIds?: string[];
   onSelectLayer: (id: string | null, multiSelect?: boolean, rangeSelect?: boolean) => void;
   onUpdateLayer?: (layerId: string, updates: Partial<Layer>) => void;
+  onEnterEditMode?: (layerId: string) => void;
 }
 
 /**
@@ -252,7 +253,203 @@ const getDynamicLayerStyle = (layer: Layer): React.CSSProperties => {
 type TransformMode = 'move' | 'resize-nw' | 'resize-ne' | 'resize-sw' | 'resize-se' | 'rotate' | null;
 type TouchMode = 'none' | 'drag' | 'pinch' | 'rotate' | 'pan' | null;
 
-export const Canvas: React.FC<CanvasProps> = ({ layers, selectedLayerId, selectedLayerIds = [], onSelectLayer, onUpdateLayer }) => {
+interface CanvasLayerProps {
+  layer: Layer;
+  isSelected: boolean;
+  isMultiSelected: boolean;
+  isPrimarySelected: boolean;
+  isTouchDevice: boolean;
+  transformMode: TransformMode;
+  touchMode: TouchMode;
+  onSelectLayer: (id: string | null, multiSelect?: boolean, rangeSelect?: boolean) => void;
+  onTransformStart: (e: React.MouseEvent | React.TouchEvent, layerId: string, mode: TransformMode) => void;
+  onTouchStart: (e: React.TouchEvent, layerId: string) => void;
+  onEnterEditMode?: (layerId: string) => void;
+}
+
+const CanvasLayer = React.memo(({
+  layer,
+  isSelected,
+  isMultiSelected,
+  isPrimarySelected,
+  isTouchDevice,
+  transformMode,
+  touchMode,
+  onSelectLayer,
+  onTransformStart,
+  onTouchStart,
+  onEnterEditMode
+}: CanvasLayerProps) => {
+  const dynamicStyle = useMemo(() => getDynamicLayerStyle(layer), [layer]);
+
+  return (
+    <div
+      onClick={(e) => {
+        e.stopPropagation();
+        if (!layer.locked && !transformMode && !touchMode) {
+          const multiSelect = e.metaKey || e.ctrlKey;
+          const rangeSelect = e.shiftKey;
+          onSelectLayer(layer.id, multiSelect, rangeSelect);
+        }
+      }}
+      onMouseDown={(e) => {
+        if (isSelected && !layer.locked) {
+          onTransformStart(e, layer.id, 'move');
+        }
+      }}
+      onTouchStart={(e) => {
+        e.stopPropagation();
+        if (!layer.locked) {
+          onSelectLayer(layer.id, false, false);
+          onTouchStart(e, layer.id);
+        }
+      }}
+      onDoubleClick={(e) => {
+        e.stopPropagation();
+        if (onEnterEditMode) {
+          onEnterEditMode(layer.id);
+        }
+      }}
+      style={{
+        transform: `translate(${layer.x}px, ${layer.y}px) rotate(${layer.rotation}deg)`,
+        width: layer.width,
+        height: layer.height,
+        opacity: layer.opacity,
+        ...layer.style,
+        ...dynamicStyle
+      }}
+      className={`
+        absolute transition-all duration-100 group
+        ${isSelected ? 'z-10' : 'z-0'}
+        ${layer.locked ? 'cursor-not-allowed opacity-70' : isSelected ? 'cursor-move' : 'cursor-pointer'}
+      `}
+    >
+      {/* Visual Content */}
+      <div className={`
+        w-full h-full relative overflow-hidden
+        ${isSelected
+          ? isPrimarySelected
+            ? 'ring-2 ring-mw-accent shadow-[0_0_25px_rgba(139,92,246,0.5)]'  // Primary selection
+            : 'ring-2 ring-mw-cyan/60 shadow-[0_0_15px_rgba(34,211,238,0.3)]'  // Secondary selection
+          : ''}
+      `}>
+        {layer.type === LayerType.IMAGE && (
+          <img src={layer.content} alt={layer.name} className="w-full h-full object-cover pointer-events-none" />
+        )}
+        
+        {layer.type === LayerType.TEXT && (
+          <div className="w-full h-full flex items-center justify-center text-white font-bold text-4xl whitespace-nowrap p-4">
+            {layer.content}
+          </div>
+        )}
+        
+        {layer.type === LayerType.SHAPE && (
+          <div className="w-full h-full" />
+        )}
+
+        {/* Modifier Indicators (Visual Only) */}
+        {layer.modifiers.some(m => m.active) && (
+          <div className="absolute bottom-2 right-2 flex gap-1 bg-black/30 backdrop-blur-sm p-1 rounded-full border border-white/10">
+            {layer.modifiers.filter(m=>m.active).slice(0, 3).map(m => (
+              <div key={m.id} className="w-1.5 h-1.5 rounded-full bg-mw-cyan" title={m.name} />
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Context Toolbar (Floating above selected object) */}
+      {isPrimarySelected && (
+        <div className="absolute -top-12 left-1/2 -translate-x-1/2 bg-black/80 backdrop-blur border border-white/10 rounded-full px-3 py-1.5 flex items-center gap-3 shadow-xl whitespace-nowrap animate-in fade-in slide-in-from-bottom-2">
+          <button className="flex items-center gap-1.5 text-xs font-medium text-mw-accent hover:text-white transition-colors">
+             <span className="text-lg">🧠</span>
+             AI Edit
+          </button>
+          <div className="w-px h-3 bg-white/20" />
+          <div className="text-[10px] text-gray-400">Opacity: {Math.round(layer.opacity * 100)}%</div>
+          <div className="w-px h-3 bg-white/20" />
+          <div className="text-[10px] text-gray-400">Blend: Normal</div>
+        </div>
+      )}
+      
+      {/* Selection Handles */}
+      {isPrimarySelected && (
+        <>
+          {isTouchDevice ? (
+            /* Mobile Touch-Optimized Handles */
+            <>
+              {/* Top-Left: Resize */}
+              <div
+                className="absolute -top-5 -left-5 w-11 h-11 bg-mw-accent/80 rounded-lg backdrop-blur-sm border border-white/30 shadow-lg flex items-center justify-center touch-manipulation active:scale-95 transition-transform"
+                onTouchStart={(e) => {
+                  e.preventDefault();
+                  onTransformStart(e as any, layer.id, 'resize-nw');
+                }}
+              >
+                <Icons.Maximize2 size={20} className="text-white" />
+              </div>
+
+              {/* Bottom-Right: Rotate */}
+              <div
+                className="absolute -bottom-6 -right-6 w-12 h-12 bg-mw-cyan/80 rounded-full backdrop-blur-sm border-2 border-white/40 shadow-lg flex items-center justify-center touch-manipulation active:scale-95 transition-transform"
+                onTouchStart={(e) => {
+                  e.preventDefault();
+                  // For touch, we'll use pinch gesture for rotation
+                }}
+              >
+                <Icons.RotateCw size={24} className="text-white" />
+              </div>
+
+              {/* Touch hint overlay */}
+              <div className="absolute -top-16 left-1/2 -translate-x-1/2 bg-black/90 backdrop-blur-sm px-3 py-1.5 rounded-full text-[10px] text-white/70 whitespace-nowrap pointer-events-none animate-pulse">
+                Two fingers to resize/rotate
+              </div>
+            </>
+          ) : (
+            /* Desktop Mouse-Optimized Handles */
+            <>
+              {/* Corner Resize Handles */}
+              <div
+                className="absolute -top-1 -left-1 w-2.5 h-2.5 bg-white rounded-full cursor-nwse-resize border border-mw-accent"
+                onMouseDown={(e) => onTransformStart(e, layer.id, 'resize-nw')}
+              />
+              <div
+                className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-white rounded-full cursor-nesw-resize border border-mw-accent"
+                onMouseDown={(e) => onTransformStart(e, layer.id, 'resize-ne')}
+              />
+              <div
+                className="absolute -bottom-1 -left-1 w-2.5 h-2.5 bg-white rounded-full cursor-nesw-resize border border-mw-accent"
+                onMouseDown={(e) => onTransformStart(e, layer.id, 'resize-sw')}
+              />
+              <div
+                className="absolute -bottom-1 -right-1 w-2.5 h-2.5 bg-white rounded-full cursor-nwse-resize border border-mw-accent"
+                onMouseDown={(e) => onTransformStart(e, layer.id, 'resize-se')}
+              />
+              {/* Rotation Handle */}
+              <div
+                className="absolute -top-8 left-1/2 -translate-x-1/2 w-3 h-3 bg-mw-accent rounded-full cursor-grab active:cursor-grabbing border border-white shadow-lg"
+                onMouseDown={(e) => onTransformStart(e, layer.id, 'rotate')}
+                title="Rotate"
+              />
+              {/* Rotation Handle Connector Line */}
+              <div className="absolute -top-8 left-1/2 -translate-x-1/2 w-px h-7 bg-mw-accent/50 pointer-events-none" />
+            </>
+          )}
+        </>
+      )}
+      {/* Secondary Selection Indicators (no handles) */}
+      {isMultiSelected && !isPrimarySelected && (
+        <>
+          <div className="absolute -top-1 -left-1 w-2.5 h-2.5 bg-white rounded-full border border-mw-cyan/60" />
+          <div className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-white rounded-full border border-mw-cyan/60" />
+          <div className="absolute -bottom-1 -left-1 w-2.5 h-2.5 bg-white rounded-full border border-mw-cyan/60" />
+          <div className="absolute -bottom-1 -right-1 w-2.5 h-2.5 bg-white rounded-full border border-mw-cyan/60" />
+        </>
+      )}
+    </div>
+  );
+});
+
+export const Canvas: React.FC<CanvasProps> = ({ layers, selectedLayerId, selectedLayerIds = [], onSelectLayer, onUpdateLayer, onEnterEditMode }) => {
   const [transformMode, setTransformMode] = useState<TransformMode>(null);
   const [dragStart, setDragStart] = useState<{ x: number; y: number } | null>(null);
   const [initialLayer, setInitialLayer] = useState<Layer | null>(null);
@@ -524,15 +721,19 @@ export const Canvas: React.FC<CanvasProps> = ({ layers, selectedLayerId, selecte
     setLongPressTriggered(false);
   };
 
-  const handleTransformStart = (e: React.MouseEvent, layerId: string, mode: TransformMode) => {
+  const handleTransformStart = useCallback((e: React.MouseEvent | React.TouchEvent, layerId: string, mode: TransformMode) => {
     e.stopPropagation();
     const layer = layers.find(l => l.id === layerId);
     if (!layer || layer.locked) return;
 
     setTransformMode(mode);
-    setDragStart({ x: e.clientX, y: e.clientY });
+    if ('clientX' in e) {
+        setDragStart({ x: e.clientX, y: e.clientY });
+    } else if ('touches' in e && e.touches.length > 0) {
+        setDragStart({ x: e.touches[0].clientX, y: e.touches[0].clientY });
+    }
     setInitialLayer({ ...layer });
-  };
+  }, [layers]);
 
   // Use the throttled version for better performance
   const handleTransformMove = throttledTransformMove;
@@ -563,173 +764,24 @@ export const Canvas: React.FC<CanvasProps> = ({ layers, selectedLayerId, selecte
       <div className="absolute top-1/2 left-1/2 w-4 h-4 -mt-2 -ml-2 border border-white/5 rounded-full opacity-20 pointer-events-none" />
 
       {layers.filter(layer => layer.visible !== false).map(layer => {
-        const dynamicStyle = getDynamicLayerStyle(layer);
+        const isSelected = selectedLayerIds.includes(layer.id);
+        const isPrimarySelected = selectedLayerId === layer.id;
 
         return (
-          <div
+          <CanvasLayer
             key={layer.id}
-            onClick={(e) => {
-              e.stopPropagation();
-              if (!layer.locked && !transformMode && !touchMode) {
-                const multiSelect = e.metaKey || e.ctrlKey;
-                const rangeSelect = e.shiftKey;
-                onSelectLayer(layer.id, multiSelect, rangeSelect);
-              }
-            }}
-            onMouseDown={(e) => {
-              if (selectedLayerIds.includes(layer.id) && !layer.locked) {
-                handleTransformStart(e, layer.id, 'move');
-              }
-            }}
-            onTouchStart={(e) => {
-              e.stopPropagation();
-              if (!layer.locked) {
-                onSelectLayer(layer.id, false, false);
-                handleTouchStart(e, layer.id);
-              }
-            }}
-            onDoubleClick={(e) => {
-              e.stopPropagation();
-              if (onEnterEditMode) {
-                onEnterEditMode(layer.id);
-              }
-            }}
-            style={{
-              transform: `translate(${layer.x}px, ${layer.y}px) rotate(${layer.rotation}deg)`,
-              width: layer.width,
-              height: layer.height,
-              opacity: layer.opacity,
-              ...layer.style,
-              ...dynamicStyle // Apply real-time modifier effects
-            }}
-            className={`
-              absolute transition-all duration-100 group
-              ${selectedLayerIds.includes(layer.id) ? 'z-10' : 'z-0'}
-              ${layer.locked ? 'cursor-not-allowed opacity-70' : selectedLayerIds.includes(layer.id) ? 'cursor-move' : 'cursor-pointer'}
-            `}
-          >
-            {/* Visual Content */}
-            <div className={`
-              w-full h-full relative overflow-hidden
-              ${selectedLayerIds.includes(layer.id)
-                ? selectedLayerId === layer.id
-                  ? 'ring-2 ring-mw-accent shadow-[0_0_25px_rgba(139,92,246,0.5)]'  // Primary selection
-                  : 'ring-2 ring-mw-cyan/60 shadow-[0_0_15px_rgba(34,211,238,0.3)]'  // Secondary selection
-                : ''}
-            `}>
-              {layer.type === LayerType.IMAGE && (
-                <img src={layer.content} alt={layer.name} className="w-full h-full object-cover pointer-events-none" />
-              )}
-              
-              {layer.type === LayerType.TEXT && (
-                <div className="w-full h-full flex items-center justify-center text-white font-bold text-4xl whitespace-nowrap p-4">
-                  {layer.content}
-                </div>
-              )}
-              
-              {layer.type === LayerType.SHAPE && (
-                <div className="w-full h-full" />
-              )}
-
-              {/* Modifier Indicators (Visual Only) */}
-              {layer.modifiers.some(m => m.active) && (
-                <div className="absolute bottom-2 right-2 flex gap-1 bg-black/30 backdrop-blur-sm p-1 rounded-full border border-white/10">
-                  {layer.modifiers.filter(m=>m.active).slice(0, 3).map(m => (
-                    <div key={m.id} className="w-1.5 h-1.5 rounded-full bg-mw-cyan" title={m.name} />
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Context Toolbar (Floating above selected object) */}
-            {selectedLayerId === layer.id && (
-              <div className="absolute -top-12 left-1/2 -translate-x-1/2 bg-black/80 backdrop-blur border border-white/10 rounded-full px-3 py-1.5 flex items-center gap-3 shadow-xl whitespace-nowrap animate-in fade-in slide-in-from-bottom-2">
-                <button className="flex items-center gap-1.5 text-xs font-medium text-mw-accent hover:text-white transition-colors">
-                   <span className="text-lg">🧠</span>
-                   AI Edit
-                </button>
-                <div className="w-px h-3 bg-white/20" />
-                <div className="text-[10px] text-gray-400">Opacity: {Math.round(layer.opacity * 100)}%</div>
-                <div className="w-px h-3 bg-white/20" />
-                <div className="text-[10px] text-gray-400">Blend: Normal</div>
-              </div>
-            )}
-            
-            {/* Selection Handles */}
-            {selectedLayerIds.includes(layer.id) && selectedLayerId === layer.id && (
-              <>
-                {isTouchDevice ? (
-                  /* Mobile Touch-Optimized Handles */
-                  <>
-                    {/* Top-Left: Resize */}
-                    <div
-                      className="absolute -top-5 -left-5 w-11 h-11 bg-mw-accent/80 rounded-lg backdrop-blur-sm border border-white/30 shadow-lg flex items-center justify-center touch-manipulation active:scale-95 transition-transform"
-                      onTouchStart={(e) => {
-                        e.preventDefault();
-                        handleTransformStart(e as any, layer.id, 'resize-nw');
-                      }}
-                    >
-                      <Icons.Maximize2 size={20} className="text-white" />
-                    </div>
-
-                    {/* Bottom-Right: Rotate */}
-                    <div
-                      className="absolute -bottom-6 -right-6 w-12 h-12 bg-mw-cyan/80 rounded-full backdrop-blur-sm border-2 border-white/40 shadow-lg flex items-center justify-center touch-manipulation active:scale-95 transition-transform"
-                      onTouchStart={(e) => {
-                        e.preventDefault();
-                        // For touch, we'll use pinch gesture for rotation
-                      }}
-                    >
-                      <Icons.RotateCw size={24} className="text-white" />
-                    </div>
-
-                    {/* Touch hint overlay */}
-                    <div className="absolute -top-16 left-1/2 -translate-x-1/2 bg-black/90 backdrop-blur-sm px-3 py-1.5 rounded-full text-[10px] text-white/70 whitespace-nowrap pointer-events-none animate-pulse">
-                      Two fingers to resize/rotate
-                    </div>
-                  </>
-                ) : (
-                  /* Desktop Mouse-Optimized Handles */
-                  <>
-                    {/* Corner Resize Handles */}
-                    <div
-                      className="absolute -top-1 -left-1 w-2.5 h-2.5 bg-white rounded-full cursor-nwse-resize border border-mw-accent"
-                      onMouseDown={(e) => handleTransformStart(e, layer.id, 'resize-nw')}
-                    />
-                    <div
-                      className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-white rounded-full cursor-nesw-resize border border-mw-accent"
-                      onMouseDown={(e) => handleTransformStart(e, layer.id, 'resize-ne')}
-                    />
-                    <div
-                      className="absolute -bottom-1 -left-1 w-2.5 h-2.5 bg-white rounded-full cursor-nesw-resize border border-mw-accent"
-                      onMouseDown={(e) => handleTransformStart(e, layer.id, 'resize-sw')}
-                    />
-                    <div
-                      className="absolute -bottom-1 -right-1 w-2.5 h-2.5 bg-white rounded-full cursor-nwse-resize border border-mw-accent"
-                      onMouseDown={(e) => handleTransformStart(e, layer.id, 'resize-se')}
-                    />
-                    {/* Rotation Handle */}
-                    <div
-                      className="absolute -top-8 left-1/2 -translate-x-1/2 w-3 h-3 bg-mw-accent rounded-full cursor-grab active:cursor-grabbing border border-white shadow-lg"
-                      onMouseDown={(e) => handleTransformStart(e, layer.id, 'rotate')}
-                      title="Rotate"
-                    />
-                    {/* Rotation Handle Connector Line */}
-                    <div className="absolute -top-8 left-1/2 -translate-x-1/2 w-px h-7 bg-mw-accent/50 pointer-events-none" />
-                  </>
-                )}
-              </>
-            )}
-            {/* Secondary Selection Indicators (no handles) */}
-            {selectedLayerIds.includes(layer.id) && selectedLayerId !== layer.id && (
-              <>
-                <div className="absolute -top-1 -left-1 w-2.5 h-2.5 bg-white rounded-full border border-mw-cyan/60" />
-                <div className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-white rounded-full border border-mw-cyan/60" />
-                <div className="absolute -bottom-1 -left-1 w-2.5 h-2.5 bg-white rounded-full border border-mw-cyan/60" />
-                <div className="absolute -bottom-1 -right-1 w-2.5 h-2.5 bg-white rounded-full border border-mw-cyan/60" />
-              </>
-            )}
-          </div>
+            layer={layer}
+            isSelected={isSelected}
+            isMultiSelected={isSelected} // Simplified for now, can be refined
+            isPrimarySelected={isPrimarySelected}
+            isTouchDevice={isTouchDevice}
+            transformMode={transformMode}
+            touchMode={touchMode}
+            onSelectLayer={onSelectLayer}
+            onTransformStart={handleTransformStart}
+            onTouchStart={handleTouchStart}
+            onEnterEditMode={onEnterEditMode}
+          />
         )
       })}
 

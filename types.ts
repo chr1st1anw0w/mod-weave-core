@@ -7,7 +7,7 @@ export enum LayerType {
   PROCEDURAL = 'PROCEDURAL'
 }
 
-import { GeneratorState } from '../services/patternGenerator';
+import { GeneratorState } from "./services/patternGenerator";
 
 export enum ModifierType {
   // --- 1-15 CORE MODIFIERS ---
@@ -103,6 +103,7 @@ export interface Layer {
   content?: string;
   style?: Record<string, any>;
   modifiers: Modifier[];
+  patternState?: GeneratorState;
   connections?: Connection[]; // Node Wiring
   children?: Layer[];
 }
