@@ -1,6 +1,8 @@
 import React, { memo, useId, useRef, useState, useCallback } from 'react';
 import { Icons } from '../Icons';
 import { IoDataType } from '../../types';
+import { TouchSlider } from '../TouchSlider';
+import { deviceCapabilities } from '../../hooks/useMobileOptimizations';
 
 // ────────────────────────────── CORE UI PRIMITIVES ──────────────────────────────
 
@@ -63,6 +65,7 @@ export const Slider = ({ value, min, max, unit = '', step = 1, onChange, label, 
   const safeValue = value ?? 0;
   const [inputValue, setInputValue] = useState(String(Math.round(safeValue * 100) / 100));
   const [isFocused, setIsFocused] = useState(false);
+  const isTouchDevice = deviceCapabilities.isTouchDevice();
 
   React.useEffect(() => {
     setInputValue(String(Math.round(safeValue * 100) / 100));
@@ -82,6 +85,27 @@ export const Slider = ({ value, min, max, unit = '', step = 1, onChange, label, 
     }
   };
 
+  // Use TouchSlider for mobile devices
+  if (isTouchDevice) {
+    return (
+      <div
+        className="w-full max-w-[240px]"
+        onMouseDown={(e) => e.stopPropagation()} // Prevent node drag-and-drop
+        onTouchStart={(e) => e.stopPropagation()} // Prevent node drag-and-drop
+      >
+        <TouchSlider
+          value={safeValue}
+          min={min}
+          max={max}
+          step={step}
+          unit={unit}
+          onChange={onChange}
+        />
+      </div>
+    );
+  }
+
+  // Desktop version with compact layout
   return (
     <div
       className="flex items-center gap-1.5 w-full max-w-[200px]"

@@ -181,10 +181,7 @@ const App = () => {
   );
   const [selectedLayerIds, setSelectedLayerIds] = useState<string[]>(["cyber-orb"]);
 
-  const [messages, setMessages] = useState<ChatMessage[]>(INITIAL_MESSAGES);
   const [isChatOpen, setIsChatOpen] = useState(true);
-  const [isThinking, setIsThinking] = useState(false);
-  const [uploadedImage, setUploadedImage] = useState<string | null>(null);
   const [isCmdKOpen, setIsCmdKOpen] = useState(false);
 
   const {
@@ -380,78 +377,6 @@ const App = () => {
       setSelectedLayerIds([layerId]);
     }
   };
-
-  const handleSendMessage = async (
-    text: string,
-    options: GeminiRequestOptions
-  ) => {
-    setMessages((prev) => [
-      ...prev,
-      {
-        id: Date.now().toString(),
-        senderId: "user",
-        text,
-        timestamp: Date.now(),
-        attachment: options.uploadedImage
-          ? {
-              type: "image",
-              url: `data:image/png;base64,${options.uploadedImage}`,
-            }
-            for (const layer of list) {
-                if (layer.children) {
-                    const newChildren = findAndRemove(layer.children);
-                    if (newChildren !== layer.children) { // Found and removed
-                        layer.children = newChildren;
-                        return list;
-                    }
-                }
-            }
-            return list;
-        };
-
-        layers = findAndRemove(layers);
-
-        if (!draggedLayer) return prev; // Should not happen
-
-        // Reset parentId before placing it
-        delete draggedLayer.parentId;
-
-        if (targetId === null) { // Dropped at the root
-            layers.push(draggedLayer);
-        } else {
-            // Find the target and insert the layer
-            let targetFound = false;
-            const findAndInsert = (list: Layer[]) => {
-                const targetIndex = list.findIndex(l => l.id === targetId);
-                if (targetIndex !== -1) {
-                    const targetLayer = list[targetIndex];
-                    if (targetLayer.type === LayerType.GROUP) {
-                        // Drop into a group
-                        targetLayer.children = targetLayer.children || [];
-                        targetLayer.children.push(draggedLayer);
-                        draggedLayer.parentId = targetLayer.id;
-                    } else {
-                        // Drop onto a layer, insert before it
-                        list.splice(targetIndex, 0, draggedLayer);
-                    }
-                    targetFound = true;
-                    return;
-                }
-                for (const layer of list) {
-                    if (layer.children) findAndInsert(layer.children);
-                    if (targetFound) return;
-                }
-            };
-            findAndInsert(layers);
-
-            if (!targetFound) { // If target wasn't in any list (e.g., something went wrong), add to root
-                layers.push(draggedLayer);
-            }
-        }
-
-        return layers;
-    });
-  }, [setLayers]);
 
   const handleSendMessage = async (
     text: string,
