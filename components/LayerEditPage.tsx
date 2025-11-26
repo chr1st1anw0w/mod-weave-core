@@ -798,72 +798,65 @@ export const LayerEditPage: React.FC<LayerEditPageProps> = ({ layer, onUpdateLay
                       {/* Header */}
                       <div className="p-3 flex items-center justify-between">
                         <div className="flex items-center gap-2 flex-1">
-                          <span className="text-[10px] text-gray-600 font-mono">#{index + 1}</span>
-                          <Icon size={14} className={meta?.color || 'text-gray-400'} />
-                          <span className="text-sm font-medium">{mod.name}</span>
-                        </div>
-                        <div className="flex items-center gap-1">
-                          {/* Solo Button */}
-                          <button
-                            onClick={() => handleToggleSolo(mod.id)}
-                            className={`p-1 rounded transition-all ${
-                              isSolo
-                                ? 'bg-mw-cyan/30 text-mw-cyan' 
-                                : 'bg-gray-500/20 text-gray-500 hover:text-mw-cyan'
-                            }`}
-                            title="Solo 模式"
-                          >
-                            <Icons.Eye size={12} />
-                          </button>
-                          {/* Power Button */}
-                          <button
-                            onClick={() => handleToggleModifier(mod.id)}
-                            className={`p-1 rounded transition-all ${
-                              mod.active 
-                                ? 'bg-green-500/20 text-green-400' 
-                                : 'bg-gray-500/20 text-gray-500'
-                            }`}
-                            title={mod.active ? '停用' : '啟用'}
-                          >
-                            <Icons.Power size={12} />
-                          </button>
-                          {/* Delete Button */}
-                          <button
-                            onClick={() => handleRemoveModifier(mod.id)}
-                            className="p-1 rounded bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-all"
-                            title="移除"
-                          >
-                            <Icons.Trash2 size={12} />
-                          </button>
-                          {/* Expand/Collapse Button */}
                           <button
                             onClick={() => handleToggleExpand(mod.id)}
-                            className="p-1 rounded bg-white/10 hover:bg-white/20 transition-all"
-                            title={isExpanded ? '折疊' : '展開'}
+                            className="p-1 hover:bg-white/10 rounded"
                           >
-                            {isExpanded ? <Icons.ChevronUp size={12} /> : <Icons.ChevronDown size={12} />}
+                            {isExpanded ? <Icons.Min size={12} /> : <Icons.Plus size={12} />}
+                          </button>
+                          <Icon size={16} className={meta?.color || 'text-gray-400'} />
+                          <span className="text-sm font-medium">{mod.name}</span>
+                        </div>
+                        
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={() => handleToggleSolo(mod.id)}
+                            className={`p-1.5 rounded transition-all ${
+                              isSolo ? 'bg-mw-cyan text-black' : 'hover:bg-white/10 text-gray-500'
+                            }`}
+                            title="Solo"
+                          >
+                            <span className="text-[10px] font-bold">S</span>
+                          </button>
+                          <button
+                            onClick={() => handleToggleModifier(mod.id)}
+                            className={`p-1.5 rounded transition-all ${
+                              mod.active ? 'text-white' : 'text-gray-600'
+                            }`}
+                            title={mod.active ? 'Disable' : 'Enable'}
+                          >
+                            {mod.active ? <Icons.Eye size={14} /> : <Icons.EyeOff size={14} />}
+                          </button>
+                          <button
+                            onClick={() => handleRemoveModifier(mod.id)}
+                            className="p-1.5 hover:bg-red-500/20 text-gray-500 hover:text-red-400 rounded transition-all"
+                            title="Remove"
+                          >
+                            <Icons.X size={14} />
                           </button>
                         </div>
                       </div>
                       
-                      {/* Parameters (Expandable) */}
-                      {isExpanded && meta?.params && (
-                        <div className="px-3 pb-3 pt-0 space-y-2 border-t border-white/5">
-                          {meta.params.map(param => (
+                      {/* Controls */}
+                      {isExpanded && (
+                        <div className="p-3 border-t border-white/5 bg-black/20 space-y-3">
+                          {meta?.params?.map(param => (
                             <div key={param.key} className="space-y-1">
-                              <div className="flex items-center justify-between">
-                                <label className="text-[10px] text-gray-400">{param.label}</label>
-                                <span className="text-[10px] text-gray-500 font-mono">
-                                  {mod.params[param.key] ?? param.def}{param.unit || ''}
+                              <div className="flex justify-between text-xs text-gray-400">
+                                <span>{param.label}</span>
+                                <span>
+                                  {mod.params[param.key]}
+                                  {param.unit}
                                 </span>
                               </div>
                               <input
                                 type="range"
                                 min={param.min}
                                 max={param.max}
+                                step={param.step || 1}
                                 value={mod.params[param.key] ?? param.def}
                                 onChange={(e) => handleUpdateParam(mod.id, param.key, parseFloat(e.target.value))}
-                                className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-mw-accent"
+                                className="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-mw-accent"
                               />
                             </div>
                           ))}

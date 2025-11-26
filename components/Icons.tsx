@@ -70,7 +70,12 @@ import {
   History, // For recently used
   RefreshCcw, // For reset button
   RotateCw, // For rotation handle
-  RotateCcw // For counter-clockwise rotation
+  RotateCcw, // For counter-clockwise rotation
+  Check,
+  AlertTriangle,
+  Info,
+  FolderPlus,
+  ChevronDown
 } from 'lucide-react';
 
 export const Icons = {
@@ -146,5 +151,10 @@ export const Icons = {
   RefreshCcw,
   RotateCw,
   RotateCcw,
-  Maximize2
+  Maximize2,
+  Check,
+  AlertTriangle,
+  Info,
+  FolderPlus,
+  ChevronDown
 };

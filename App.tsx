@@ -7,8 +7,12 @@ import { Canvas } from "./components/Canvas";
 import { CommandPalette } from "./components/CommandPalette";
 import { LayerEditPage } from "./components/LayerEditPage";
 import { Icons } from "./components/Icons";
+import { ToastContainer } from "./components/ui/Toast";
 import { useHistory } from "./hooks/useHistory";
 import { useChat } from "./hooks/useChat";
+import { useToast } from "./hooks/useToast";
+import { useAiActions } from "./hooks/useAiActions";
+import { MODIFIER_CATALOG_FLAT } from "./constants";
 import html2canvas from 'html2canvas';
 import { generateSVG } from "./services/patternGenerator";
 import {
@@ -184,6 +188,10 @@ const App = () => {
   const [isChatOpen, setIsChatOpen] = useState(true);
   const [isCmdKOpen, setIsCmdKOpen] = useState(false);
 
+  // Missing state declarations
+  const [viewMode, setViewMode] = useState('main');
+  const [editingLayerId, setEditingLayerId] = useState<string | null>(null);
+
   const {
     messages,
     isThinking,
@@ -191,6 +199,13 @@ const App = () => {
     setUploadedImage,
     sendMessage,
   } = useChat(layers, selectedLayerId);
+
+  const { toasts, showToast, removeToast } = useToast();
+
+  // Helper function for handling layer updates with history
+  const setLayersWithHistory = useCallback((updater: (prev: Layer[]) => Layer[]) => {
+    setLayers(updater);
+  }, [setLayers]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -260,6 +275,14 @@ const App = () => {
     );
   }, [setLayers]);
 
+  const { handleAiResponse } = useAiActions({
+    setLayers,
+    selectedLayerId,
+    setSelectedLayerId,
+    handleUpdateLayer,
+    showToast,
+  });
+
   const handleCreateGroup = useCallback(() => {
     const newGroup: Layer = {
       id: `grp-${Date.now()}`,
@@ -275,7 +298,8 @@ const App = () => {
       children: [],
     };
     setLayers((prev) => [...prev, newGroup]);
-  }, [setLayers]);
+    showToast("New group created", "success");
+  }, [setLayers, showToast]);
 
   const handleImportImage = useCallback((imageData: string) => {
     const newImageLayer: Layer = {
@@ -292,7 +316,8 @@ const App = () => {
       modifiers: [],
     };
     setLayers((prev) => [...prev, newImageLayer]);
-  }, [setLayers]);
+    showToast("Image imported successfully", "success");
+  }, [setLayers, showToast]);
 
   const handleExport = () => {
     const element = document.getElementById('canvas-to-export');
@@ -305,6 +330,10 @@ const App = () => {
         link.download = 'mod-weave-export.png';
         link.href = canvas.toDataURL('image/png');
         link.click();
+        showToast("Exported successfully", "success");
+      }).catch(err => {
+        console.error("Export failed:", err);
+        showToast("Export failed", "error");
       });
     }
   };
@@ -333,12 +362,87 @@ const App = () => {
     }
   };
 
+  const handleReorderLayers = useCallback((fromIndex: number, toIndex: number) => {
+    setLayersWithHistory((prev) => {
+      const newLayers = [...prev];
+      const [movedLayer] = newLayers.splice(fromIndex, 1);
+      newLayers.splice(toIndex, 0, movedLayer);
+      return newLayers;
+    });
+  }, [setLayersWithHistory]);
+
+  const handleReorderModifiers = useCallback((layerId: string, fromIndex: number, toIndex: number) => {
+    setLayersWithHistory((prev) =>
+      prev.map((layer) => {
+        if (layer.id === layerId) {
+          const newMods = [...layer.modifiers];
+          const [movedMod] = newMods.splice(fromIndex, 1);
+          newMods.splice(toIndex, 0, movedMod);
+          return { ...layer, modifiers: newMods };
+        }
+        return layer;
+      })
+    );
+  }, [setLayersWithHistory]);
+
+  const handleAddModifierToLayer = useCallback((layerId: string, modifierType: ModifierType) => {
+    const catalogItem = MODIFIER_CATALOG_FLAT.find(m => m.type === modifierType);
+    const newModifier: Modifier = {
+      id: `mod-${Date.now()}`,
+      type: modifierType,
+      name: catalogItem?.label || 'New Modifier',
+      active: true,
+      params: {},
+    };
+
+    setLayersWithHistory((prev) =>
+      prev.map((layer) =>
+        layer.id === layerId
+          ? { ...layer, modifiers: [...layer.modifiers, newModifier] }
+          : layer
+      )
+    );
+    showToast(`Added ${catalogItem?.label || 'modifier'} to layer`, "success");
+  }, [setLayersWithHistory, showToast]);
+
+  const handleRemoveModifier = useCallback((layerId: string, modifierId: string) => {
+    setLayersWithHistory((prev) =>
+      prev.map((layer) => {
+        if (layer.id === layerId) {
+          return {
+            ...layer,
+            modifiers: layer.modifiers.filter(m => m.id !== modifierId),
+            connections: (layer.connections || []).filter(
+              c => c.fromModId !== modifierId && c.toModId !== modifierId
+            ),
+          };
+        }
+        return layer;
+      })
+    );
+  }, [setLayersWithHistory]);
+
+  const handleToggleModifierActive = useCallback((layerId: string, modifierId: string) => {
+    setLayersWithHistory((prev) =>
+      prev.map((layer) => {
+        if (layer.id === layerId) {
+          return {
+            ...layer,
+            modifiers: layer.modifiers.map(m =>
+              m.id === modifierId ? { ...m, active: !m.active } : m
+            ),
+          };
+        }
+        return layer;
+      })
+    );
+  }, [setLayersWithHistory]);
+
   const handleSelectLayer = (layerId: string | null, multiSelect?: boolean, rangeSelect?: boolean) => {
     if (layerId === null) {
       // Deselect all
       setSelectedLayerId(null);
       setSelectedLayerIds([]);
-      return;
     }
 
     const layer = layers.find(l => l.id === layerId);
@@ -382,105 +486,14 @@ const App = () => {
     text: string,
     options: { uploadedImage: string | null, useFastMode: boolean }
   ) => {
-    const response = await sendMessage(text, options);
-
-    // --- Handle AI Actions ---
-    if (
-      response.actionType === "MANIPULATE_NODES" &&
-      response.actionPayload &&
-      selectedLayerId
-    ) {
-      setLayers((prevLayers) => {
-        return prevLayers.map((layer) => {
-          if (layer.id !== selectedLayerId) return layer;
-
-          let newModifiers = [...layer.modifiers];
-          let newConnections = [...(layer.connections || [])];
-
-          response.actionPayload?.forEach((action) => {
-            switch (action.action) {
-              case "update_modifier_params":
-                newModifiers = newModifiers.map((mod) =>
-                  mod.id === action.modId
-                    ? {
-                        ...mod,
-                        params: { ...mod.params, ...action.params },
-                        lastUsed: Date.now(),
-                      }
-                    : mod
-                );
-                break;
-              case "add_modifier":
-                const catalogItem = MODIFIER_CATALOG_FLAT.find(
-                  (c) => c.type === action.type
-                ); // Access full catalog
-                const newMod: Modifier = {
-                  id: `mod-${Date.now()}`,
-                  type: action.type,
-                  name: catalogItem?.label || action.type,
-                  active: true,
-                  params: {},
-                  lastUsed: Date.now(),
-                };
-                newModifiers.push(newMod);
-                break;
-              case "create_connection":
-                const newConn = { id: `conn-${Date.now()}`, ...action };
-                // Prevent duplicate connections (same from-to pair)
-                const exists = newConnections.some(
-                  (c) =>
-                    c.fromModId === newConn.fromModId &&
-                    c.fromPort === newConn.fromPort &&
-                    c.toModId === newConn.toModId &&
-                    c.toPort === newConn.toPort
-                );
-                if (!exists) {
-                  newConnections.push(newConn);
-                } else {
-                  console.log("Connection already exists, skipping:", newConn);
-                }
-                break;
-            }
-          });
-
-          return {
-            ...layer,
-            modifiers: newModifiers,
-            connections: newConnections,
-          };
-        });
-      });
-    } else if (
-      response.actionType === "CREATE_LAYER" &&
-      response.generatedImage
-    ) {
-      const newLayer: Layer = {
-        id: `gen-${Date.now()}`,
-        name: `AI Gen: ${text.slice(0, 15)}...`,
-        type: LayerType.IMAGE,
-        x: 200,
-        y: 200,
-        width: 512,
-        height: 512,
-        rotation: 0,
-        opacity: 1,
-        content: `data:image/png;base64,${response.generatedImage}`,
-        modifiers: [],
-        connections: [],
-      };
-      setLayers((prev) => [...prev, newLayer]);
-      setSelectedLayerId(newLayer.id);
-    } else if (
-      response.actionType === "UPDATE_LAYER" &&
-      response.generatedImage &&
-      selectedLayerId
-    ) {
-      handleUpdateLayer(selectedLayerId, {
-        content: `data:image/png;base64,${response.generatedImage}`,
-      });
+    try {
+      const response = await sendMessage(text, options);
+      handleAiResponse(response, text);
+    } catch (error) {
+      console.error("Failed to send message:", error);
+      showToast("Failed to process AI request", "error");
     }
-
-  };
+  }, [sendMessage, handleAiResponse, showToast]);
 
   const selectedLayer = layers.find((l) => l.id === selectedLayerId) || null;
   const editingLayer = editingLayerId ? layers.find((l) => l.id === editingLayerId) : null;
@@ -509,7 +522,8 @@ const App = () => {
 
   return (
     <div className="w-screen h-screen bg-mw-bg text-zinc-100 font-sans overflow-hidden flex flex-col relative">
-      
+      <ToastContainer toasts={toasts} onRemove={removeToast} />
+
       <header className="absolute top-0 left-0 w-full h-12 flex items-center justify-between px-6 z-50 pointer-events-none">
          <div className="flex items-center gap-4 pointer-events-auto">
              <div className="w-8 h-8 bg-mw-accent rounded-lg flex items-center justify-center font-mono font-bold text-white shadow-lg">M</div>
@@ -547,9 +561,16 @@ const App = () => {
         onSelectLayer={handleSelectLayer}
         onToggleVisibility={handleToggleVisibility}
         onToggleLock={handleToggleLock}
+        onImportImage={handleImportImage}
+        onCreateGroup={handleCreateGroup}
+        onReorderLayers={handleReorderLayers}
+        onReorderModifiers={handleReorderModifiers}
+        onAddModifierToLayer={handleAddModifierToLayer}
+        onRemoveModifier={handleRemoveModifier}
+        onToggleModifierActive={handleToggleModifierActive}
         className={activeMobilePanel === 'layers' ? 'fixed inset-0 z-50 w-full h-full max-h-full rounded-none' : 'hidden md:flex absolute top-20 left-6 w-64 max-h-[70vh]'}
       />
-      
+
       {selectedLayer?.type === LayerType.PROCEDURAL ? (
         <PatternGeneratorPanel
           layer={selectedLayer}
@@ -563,20 +584,20 @@ const App = () => {
           isMobile={activeMobilePanel === 'nodes'}
         />
       )}
-      
-      <ChatPanel 
-        messages={messages} 
-        isOpen={isChatOpen} 
+
+      <ChatPanel
+        messages={messages}
+        isOpen={isChatOpen}
         setIsOpen={(open) => {
           setIsChatOpen(open);
           if (!open && activeMobilePanel === 'chat') {
             setActiveMobilePanel(null);
           }
-        }} 
-        onSendMessage={handleSendMessage} 
-        isThinking={isThinking} 
-        uploadedImage={uploadedImage} 
-        setUploadedImage={setUploadedImage} 
+        }}
+        onSendMessage={handleSendMessage}
+        isThinking={isThinking}
+        uploadedImage={uploadedImage}
+        setUploadedImage={setUploadedImage}
         isMobile={activeMobilePanel === 'chat'}
       />
 
@@ -614,63 +635,3 @@ const App = () => {
 };
 
 export default App;
-
-// Flat catalog for AI to reference ModifierType by label/type
-const MODIFIER_CATALOG_FLAT = [
-  { type: ModifierType.OUTLINE, label: "Outline", cat: "Shape" },
-  { type: ModifierType.STRETCH, label: "Stretch", cat: "Distort" },
-  { type: ModifierType.REPEATER, label: "Repeater", cat: "Pattern" },
-  {
-    type: ModifierType.PARTICLE_DISSOLVE,
-    label: "Particle Dissolve",
-    cat: "Physics",
-  },
-  { type: ModifierType.SPRING, label: "Spring", cat: "Physics" },
-  { type: ModifierType.WAVE, label: "Wave", cat: "Distort" },
-  { type: ModifierType.PARALLAX, label: "Parallax", cat: "Motion" },
-  { type: ModifierType.AI_FILL, label: "AI Fill", cat: "AI" },
-  { type: ModifierType.GLITCH, label: "Glitch", cat: "Effect" },
-  { type: ModifierType.REFRACTION, label: "Refraction", cat: "Glass" },
-  { type: ModifierType.HALFTONE_LUMA, label: "Halftone", cat: "Style" },
-  { type: ModifierType.EXTRUDE, label: "Extrude 3D", cat: "3D" },
-  {
-    type: ModifierType.BRIGHTNESS_CONTRAST,
-    label: "Bright/Contr",
-    cat: "Color",
-  },
-  { type: ModifierType.GRADIENT_MAP, label: "Gradient Map", cat: "Color" },
-  { type: ModifierType.PERTURB, label: "Perturb", cat: "Distort" },
-  { type: ModifierType.REMOVE_BACKGROUND, label: "Remove BG", cat: "AI" },
-  { type: ModifierType.SPLIT_TO_LAYERS, label: "Split Layers", cat: "Util" },
-  { type: ModifierType.PEN_STROKES, label: "Pen Strokes", cat: "Style" },
-  { type: ModifierType.EMBOSS, label: "Emboss", cat: "Style" },
-  { type: ModifierType.DROP_SHADOW, label: "Drop Shadow", cat: "Style" },
-  { type: ModifierType.INNER_SHADOW, label: "Inner Shadow", cat: "Style" },
-  { type: ModifierType.BEVEL_EMBOSS, label: "Bevel", cat: "3D" },
-  { type: ModifierType.COLOR_OVERLAY, label: "Color Overlay", cat: "Color" },
-  { type: ModifierType.NOISE, label: "Noise", cat: "Effect" },
-  { type: ModifierType.GAUSSIAN_BLUR, label: "Gaussian Blur", cat: "Blur" },
-  { type: ModifierType.MOTION_BLUR, label: "Motion Blur", cat: "Blur" },
-  { type: ModifierType.RADIAL_BLUR, label: "Radial Blur", cat: "Blur" },
-  { type: ModifierType.LIQUIFY, label: "Liquify", cat: "Distort" },
-  { type: ModifierType.DISPLACEMENT_MAP, label: "Displace", cat: "Distort" },
-  { type: ModifierType.THRESHOLD, label: "Threshold", cat: "Color" },
-  { type: ModifierType.INVERT, label: "Invert", cat: "Color" },
-  { type: ModifierType.POSTERIZE, label: "Posterize", cat: "Color" },
-  { type: ModifierType.HUE_SATURATION, label: "Hue/Sat", cat: "Color" },
-  { type: ModifierType.CURVES, label: "Curves", cat: "Color" },
-  { type: ModifierType.VIGNETTE, label: "Vignette", cat: "Effect" },
-  { type: ModifierType.LENS_FLARE, label: "Lens Flare", cat: "Light" },
-  { type: ModifierType.BLOOM, label: "Bloom", cat: "Light" },
-  {
-    type: ModifierType.CHROMATIC_ABERRATION,
-    label: "Chromatic",
-    cat: "Effect",
-  },
-  { type: ModifierType.SHARPEN, label: "Sharpen", cat: "Effect" },
-  { type: ModifierType.TILT_SHIFT, label: "Tilt Shift", cat: "Blur" },
-  { type: ModifierType.DITHER, label: "Dither", cat: "Retro" },
-  { type: ModifierType.PIXELATE, label: "Pixelate", cat: "Retro" },
-  { type: ModifierType.KALEIDOSCOPE, label: "Kaleidoscope", cat: "Effect" },
-  { type: ModifierType.MODIFIER_GROUP, label: "Group", cat: "Util" }, // Also include group here for AI
-];
