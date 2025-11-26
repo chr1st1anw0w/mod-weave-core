@@ -482,7 +482,7 @@ const App = () => {
     }
   };
 
-  const handleSendMessage = useCallback(async (
+  const handleSendMessage = async (
     text: string,
     options: { uploadedImage: string | null, useFastMode: boolean }
   ) => {
