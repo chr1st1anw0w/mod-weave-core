@@ -6,6 +6,7 @@ import { PatternGeneratorPanel } from "./components/PatternGeneratorPanel";
 import { Canvas } from "./components/Canvas";
 import { CommandPalette } from "./components/CommandPalette";
 import { LayerEditPage } from "./components/LayerEditPage";
+import { ExportPanel } from "./components/ExportPanel";
 import { Icons } from "./components/Icons";
 import { ToastContainer } from "./components/ui/Toast";
 import { useHistory } from "./hooks/useHistory";
@@ -13,7 +14,6 @@ import { useChat } from "./hooks/useChat";
 import { useToast } from "./hooks/useToast";
 import { useAiActions } from "./hooks/useAiActions";
 import { MODIFIER_CATALOG_FLAT } from "./constants";
-import html2canvas from 'html2canvas';
 import { generateSVG } from "./services/patternGenerator";
 import {
   Layer,
@@ -187,6 +187,7 @@ const App = () => {
 
   const [isChatOpen, setIsChatOpen] = useState(true);
   const [isCmdKOpen, setIsCmdKOpen] = useState(false);
+  const [isExportPanelOpen, setIsExportPanelOpen] = useState(false);
 
   // Missing state declarations
   const [viewMode, setViewMode] = useState('main');
@@ -319,23 +320,8 @@ const App = () => {
     showToast("Image imported successfully", "success");
   }, [setLayers, showToast]);
 
-  const handleExport = () => {
-    const element = document.getElementById('canvas-to-export');
-    if (element) {
-      html2canvas(element, {
-        backgroundColor: '#121214', // Match the app's background
-        useCORS: true, // If you have external images
-      }).then(canvas => {
-        const link = document.createElement('a');
-        link.download = 'mod-weave-export.png';
-        link.href = canvas.toDataURL('image/png');
-        link.click();
-        showToast("Exported successfully", "success");
-      }).catch(err => {
-        console.error("Export failed:", err);
-        showToast("Export failed", "error");
-      });
-    }
+  const handleOpenExportPanel = () => {
+    setIsExportPanelOpen(true);
   };
 
   const handleToggleVisibility = (layerId: string) => {
@@ -545,7 +531,10 @@ const App = () => {
                 ✏️ 編輯圖層
               </button>
              <button className="bg-white/10 hover:bg-white/20 px-3 py-1 rounded text-xs hidden md:block">Share</button>
-             <button onClick={handleExport} className="bg-mw-accent hover:bg-violet-600 px-3 py-1 rounded text-xs">Export</button>
+             <button onClick={handleOpenExportPanel} className="bg-mw-accent hover:bg-violet-600 px-3 py-1 rounded text-xs flex items-center gap-1.5">
+               <Icons.Download size={14} />
+               Export
+             </button>
           </div>
       </header>
 
@@ -607,6 +596,13 @@ const App = () => {
       </div>
 
       <CommandPalette isOpen={isCmdKOpen} onClose={() => setIsCmdKOpen(false)} />
+
+      <ExportPanel
+        layers={layers}
+        isOpen={isExportPanelOpen}
+        onClose={() => setIsExportPanelOpen(false)}
+        showToast={showToast}
+      />
 
       {/* Mobile Bottom Navigation */}
       <div className="md:hidden fixed bottom-0 left-0 w-full h-16 bg-mw-panel border-t border-white/10 flex items-center justify-around z-50 pb-safe">
