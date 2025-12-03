@@ -75,7 +75,12 @@ import {
   AlertTriangle,
   Info,
   FolderPlus,
-  ChevronDown
+  ChevronDown,
+  Download, // For export
+  FileCode, // For SVG export
+  FileJson, // For JSON export
+  Film, // For GIF export
+  Video // For MP4 export
 } from 'lucide-react';
 
 export const Icons = {
@@ -156,5 +161,10 @@ export const Icons = {
   AlertTriangle,
   Info,
   FolderPlus,
-  ChevronDown
+  ChevronDown,
+  Download,
+  FileCode,
+  FileJson,
+  Film,
+  Video
 };
